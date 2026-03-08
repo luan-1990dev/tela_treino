@@ -1,0 +1,37 @@
+name: tela_treino
+description: "Tela de apoio a treino"
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.10.4 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.3.3
+  path: ^1.9.1
+  pip_view: ^0.9.7
+  vibration: ^3.1.8
+  shared_preferences: ^2.3.2
+  http: ^1.2.1
+  url_launcher: ^6.3.1
+  fl_chart: ^0.69.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+
+flutter:
+  uses-material-design: true
