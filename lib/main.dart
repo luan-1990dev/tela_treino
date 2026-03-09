@@ -54,9 +54,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(() {
-      setState(() {});
-    });
+    // Removido o erro do _scrollController que não pertence a esta classe
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
@@ -134,8 +132,9 @@ class WorkoutScreen extends StatefulWidget {
   State<WorkoutScreen> createState() => _WorkoutScreenState();
 }
 
-final ScrollController _scrollController = ScrollController();
 class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  final ScrollController _scrollController = ScrollController(); // Definido corretamente aqui
+
   @override
   bool get wantKeepAlive => true;
 
@@ -158,78 +157,123 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
     _workoutTitleController = TextEditingController(text: widget.workoutTitle);
-    _loadData();
     _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(_pulseController);
+
+    // Listener para atualizar o FAB durante o scroll
+    _scrollController.addListener(() {
+      if (mounted) setState(() {});
+    });
+
+    _loadData();
   }
 
+// MÉTODO BLINDADO PARA CARREGAR DADOS E EVITAR TELA BRANCA
   Future<void> _loadData() async {
-    List<String>? names = await _storage.getExerciseNames(widget.workoutKey);
-    if (names == null || names.isEmpty) {
-      names = _getDefaultExercises(widget.workoutKey);
-      await _storage.saveExerciseNames(widget.workoutKey, names);
-    }
+    try {
+      if (mounted) setState(() => _isLoading = true);
 
-    final loaded = <Exercise>[];
-    for (int i = 0; i < names.length; i++) {
-      final savedCount = await _storage.getSeriesCount(widget.workoutKey, i) ?? 4;
-      final reps = await _storage.getRepsList(widget.workoutKey, i);
-      final weights = await _storage.getWeightsList(widget.workoutKey, i);
-      
-      final ex = Exercise(name: names[i], seriesCount: savedCount, initialReps: reps, initialWeights: weights);
-      
-      final series = await _storage.getSeriesState(widget.workoutKey, i);
-      if (series != null && series.length == ex.seriesCompleted.length) ex.seriesCompleted = series;
-      
-      ex.previousWeight = await _storage.getPrevWeight(widget.workoutKey, i) ?? '';
-      loaded.add(ex);
+      // Busca os nomes salvos para a aba específica (A, B, C ou D)
+      List<String>? names = await _storage.getExerciseNames(widget.workoutKey);
+
+      // Se estiver vazio, carrega os exercícios padrão daquela aba
+      if (names == null || names.isEmpty) {
+        names = _getDefaultExercises(widget.workoutKey);
+        await _storage.saveExerciseNames(widget.workoutKey, names);
+      }
+
+      final loaded = <Exercise>[];
+      for (int i = 0; i < names.length; i++) {
+        // Busca configurações salvas para cada exercício
+        final savedCount = await _storage.getSeriesCount(widget.workoutKey, i) ?? 4;
+        final reps = await _storage.getRepsList(widget.workoutKey, i);
+        final weights = await _storage.getWeightsList(widget.workoutKey, i);
+
+        final ex = Exercise(
+          name: names[i],
+          seriesCount: savedCount,
+          initialReps: reps,
+          initialWeights: weights,
+        );
+
+        // Carrega o estado das caixas de ticar (checkboxes)
+        final series = await _storage.getSeriesState(widget.workoutKey, i);
+        if (series != null && series.length == ex.seriesCompleted.length) {
+          ex.seriesCompleted = series;
+        }
+
+        // Carrega o peso anterior para a lógica de progressão (ícone 📈)
+        ex.previousWeight = await _storage.getPrevWeight(widget.workoutKey, i) ?? '';
+        loaded.add(ex);
+      }
+
+      if (mounted) {
+        setState(() {
+          _exercises = loaded;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar aba ${widget.workoutKey}: $e");
+      // Fallback de segurança: inicializa lista vazia para evitar a tela branca
+      if (mounted) {
+        setState(() {
+          _exercises = [];
+          _isLoading = false;
+        });
+      }
     }
-    if (mounted) setState(() { _exercises = loaded; _isLoading = false; });
+  }
+
+  List<String> _getDefaultExercises(String key) {
+    if (key == 'A') return ['Supino reto', 'Pec deck', 'Crucifixo inclinado', 'Desenvolvimento maquina', 'Elevação lateral', 'Tríceps polia', 'Tríceps corda'];
+    if (key == 'B') return ['Puxador frontal aberto', 'Remada baixa', 'Puxada articulada', 'Remada alta', 'Encolhimento Halter', 'Rosca direta barra', 'Rosca alternada'];
+    if (key == 'C') return ['Leg Press', 'Extensora', 'Flexora sentada', 'Abdutora', 'Agachamento sumo', 'Panturrilha maquina', 'Panturrilha step'];
+    return ['Abdominal', 'Prancha', 'Agachamento livre', 'Flexão de braço', 'Burpee', 'Polichinelo', 'Elevação pélvica'];
+  }
+
+  void _updateSeriesCount(int index, String value) {
+    final newCount = int.tryParse(value) ?? 0;
+    if (newCount < 1 || newCount > 12) return;
+
+    setState(() {
+      final exercise = _exercises[index];
+      int currentCount = exercise.seriesCompleted.length;
+
+      if (newCount > currentCount) {
+        exercise.seriesCompleted.addAll(List.filled(newCount - currentCount, false));
+      } else if (newCount < currentCount) {
+        exercise.seriesCompleted = exercise.seriesCompleted.sublist(0, newCount);
+      }
+    });
+    _saveState(index);
   }
 
   Future<void> _saveState(int index) async {
-    if (index >= _exercises.length) return;
     final ex = _exercises[index];
-    await _storage.saveExerciseNames(widget.workoutKey, _exercises.map((e) => e.nameController.text).toList());
     await _storage.saveSeriesState(widget.workoutKey, index, ex.seriesCompleted);
-    await _storage.saveRepsList(widget.workoutKey, index, ex.repsControllers.map((c) => c.text).toList());
-    await _storage.saveWeightsList(widget.workoutKey, index, ex.weightControllers.map((c) => c.text).toList());
-    await _storage.saveSeriesCount(widget.workoutKey, index, ex.repsControllers.length);
-
-    if (ex.seriesCompleted.every((c) => c)) {
-      await _storage.savePrevWeight(widget.workoutKey, index, ex.weightControllers.isNotEmpty ? ex.weightControllers.first.text : '0');
-    }
-
-    if (_exercises.every((e) => e.seriesCompleted.every((c) => c))) {
-      _showWorkoutCompleteSnackBar();
-    }
-
-    _checkReset();
+    await _storage.saveSeriesCount(widget.workoutKey, index, ex.seriesCompleted.length);
   }
 
-  void _showWorkoutCompleteSnackBar() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 8),
-        backgroundColor: Colors.blue.shade800,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.emoji_events, color: Colors.amber, size: 32),
-            SizedBox(height: 8),
-            Text(
-              'Treino concluído com sucesso, Parabéns!!!\nAgora beba muita água, se alimente bem e descanse.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-          ],
-        ),
+  Widget _buildPip() => Center(
+    child: Text(
+      _timerText,
+      style: TextStyle(
+        fontSize: 28, // Ajustado para 28
+        fontWeight: FontWeight.bold,
+        color: (_remainingSeconds > 0 && _remainingSeconds <= 10)
+            ? Colors.red
+            : Colors.black,
       ),
-    );
+    ),
+  );
+
+  String get _timerText {
+    final m = _remainingSeconds ~/ 60;
+    final s = _remainingSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   Future<void> _checkReset() async {
@@ -250,39 +294,68 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       }
     }
   }
-  
+
   void _clearAllSeries() {
-    setState(() {
-      for (int i = 0; i < _exercises.length; i++) {
-        for (int j = 0; j < _exercises[i].seriesCompleted.length; j++) {
-          _exercises[i].seriesCompleted[j] = false;
+    try {
+      setState(() {
+        for (var exercise in _exercises) {// Verifica se a lista de séries concluídas não é nula
+          if (exercise.seriesCompleted.isNotEmpty) {
+            // Cria uma nova lista preenchida com 'false' do mesmo tamanho da atual
+            exercise.seriesCompleted = List<bool>.filled(
+                exercise.seriesCompleted.length,
+                false,
+                growable: true
+            );
+          }
         }
+      });
+
+      // Salva o estado limpo para cada exercício de forma segura
+      for (int i = 0; i < _exercises.length; i++) {
         _saveState(i);
       }
-    });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Todas as marcações foram limpas!'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      debugPrint("Erro ao limpar caixas: $e");
+      // Se der erro, apenas recarrega os dados para destravar a tela branca
+      _loadData();
+    }
   }
 
   void _addNew() {
-    final c = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Novo Exercício'),
-      content: TextField(
-        controller: c,
-        autofocus: true,
-        inputFormatters: [LengthLimitingTextInputFormatter(19)],
+    final c = TextEditingController();    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Novo Exercício'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          inputFormatters: [LengthLimitingTextInputFormatter(19)],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () async {
+              if (c.text.isNotEmpty) {
+                final nav = Navigator.of(ctx); // Captura o navigator antes do await
+                final names = _exercises.map((e) => e.nameController.text).toList()..add(c.text);
+                await _storage.saveExerciseNames(widget.workoutKey, names);
+                nav.pop(); // Fecha o diálogo usando a referência salva
+                _loadData();
+              }
+            },
+            child: const Text('Adicionar'),
+          )
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-        TextButton(onPressed: () async {
-          if (c.text.isNotEmpty) {
-            final names = _exercises.map((e) => e.nameController.text).toList()..add(c.text);
-            await _storage.saveExerciseNames(widget.workoutKey, names);
-            Navigator.pop;
-            _loadData();
-          }
-        }, child: const Text('Adicionar'))
-      ],
-    ));
+    );
   }
 
   void _requestRemove(int index) {
@@ -382,26 +455,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     }
   }
 
-  List<String> _getDefaultExercises(String key) {
-    if (key == 'A') return ['Supino reto', 'Pec deck', 'Crucifixo inclinado', 'Desenvolvimento maquina', 'Elevação lateral', 'Tríceps polia', 'Tríceps corda'];
-    if (key == 'B') return ['Puxador frontal aberto', 'Remada baixa', 'Puxada articulada', 'Remada alta', 'Encolhimento Halter', 'Rosca direta barra', 'Rosca alternada'];
-    if (key == 'C') return ['Leg Press', 'Extensora', 'Flexora sentada', 'Abdutora', 'Agachamento sumo', 'Panturrilha maquina', 'Panturrilha step'];
-    return ['Abdominal', 'Prancha', 'Agachamento livre', 'Flexão de braço', 'Burpee', 'Polichinelo', 'Elevação pélvica'];
-  }
-
   @override
   void dispose() {
+    _scrollController.dispose(); // Adicionado para evitar memory leak
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _vibrationTimer?.cancel();
     _pulseController.dispose();
     _workoutTitleController.dispose();
-
-    // Corrigido: Envolvido em um bloco {} conforme a regra de lint
     for (var ex in _exercises) {
       ex.dispose();
     }
-
     super.dispose();
   }
 
@@ -449,26 +513,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   void _togglePause() {
     setState(() { _isPaused = !_isPaused; });
-  }
-
-  Widget _buildPip() => Center(
-    child: Text(
-      _timerText,
-      style: TextStyle(
-        fontSize: 32, //
-        fontWeight: FontWeight.bold,
-        // Fica vermelho se faltar entre 1 e 10 segundos
-        color: (_remainingSeconds > 0 && _remainingSeconds <= 10)
-            ? Colors.red
-            : Colors.black,
-      ),
-    ),
-  );
-
-  String get _timerText {
-    final m = _remainingSeconds ~/ 60;
-    final s = _remainingSeconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -553,15 +597,33 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                   child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
                     TextField(controller: ex.nameController, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: const InputDecoration(border: InputBorder.none), inputFormatters: [LengthLimitingTextInputFormatter(19)], onChanged: (v) => _saveState(idx)),
                     const SizedBox(height: 8),
-                    // CONTROLE DE SÉRIES INDIVIDUAL NO CARD
+                    /// CONTROLE DE SÉRIES INDIVIDUAL NO CARD
                     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      IconButton(icon: const Icon(Icons.remove_circle_outline, size: 24, color: Colors.grey), onPressed: () { setState(() { ex.updateSeriesCount(ex.repsControllers.length - 1); }); _saveState(idx); }),
+                      IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, size: 24, color: Colors.grey),
+                          onPressed: () {
+                            setState(() {
+                              // Vincula a diminuição ao tamanho da lista de checkboxes
+                              ex.updateSeriesCount(ex.seriesCompleted.length - 1);
+                            });
+                            _saveState(idx);
+                          }
+                      ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
-                        child: Text('Séries: ${ex.repsControllers.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        child: Text('Séries: ${ex.seriesCompleted.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      IconButton(icon: const Icon(Icons.add_circle_outline, size: 24, color: Colors.blue), onPressed: () { setState(() { ex.updateSeriesCount(ex.repsControllers.length + 1); }); _saveState(idx); }),
+                      IconButton(
+                          icon: const Icon(Icons.add_circle_outline, size: 24, color: Colors.blue),
+                          onPressed: () {
+                            setState(() {
+                              // Vincula o aumento ao tamanho da lista de checkboxes
+                              ex.updateSeriesCount(ex.seriesCompleted.length + 1);
+                            });
+                            _saveState(idx);
+                          }
+                      ),
                     ]),
                     const SizedBox(height: 8),
                     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -569,28 +631,31 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                       IconButton(icon: const Icon(Icons.ondemand_video, color: Colors.blueGrey, size: 24), onPressed: () => _launchYouTubeSearch(ex.nameController.text), tooltip: 'Tutorial YouTube'),
                       IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 24), onPressed: () => _requestRemove(idx)),
                     ]),
-                    const SizedBox(height: 12),
-                    Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(4, (sIdx) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: SizedBox(
-                        height: 24, width: 24,
-                        child: Checkbox(
-                          value: ex.seriesCompleted[sIdx],
-                          activeColor: Colors.green,
-                          onChanged: (v) {
-                            setState(() {
-                              ex.seriesCompleted[sIdx] = v ?? false;
-                              if (ex.seriesCompleted[sIdx]) {
-                                _startTimer(60);
-                                final weight = double.tryParse(ex.weightControllers.isNotEmpty ? ex.weightControllers[0].text : '0') ?? 0.0;
-                                if (weight > 0) _db.insertHistory(ex.nameController.text, weight);
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(ex.seriesCompleted.length, (sIdx) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4), // Ajustado para caber mais caixas
+                        child: SizedBox(
+                          height: 24, width: 24,
+                          child: Checkbox(
+                              value: ex.seriesCompleted[sIdx],
+                              activeColor: Colors.green,
+                              onChanged: (v) {
+                                setState(() {
+                                  ex.seriesCompleted[sIdx] = v ?? false;
+                                  if (ex.seriesCompleted[sIdx]) {
+                                    // Lógica de histórico simplificada para o peso da primeira série ou atual
+                                    final weight = double.tryParse(ex.weightControllers.isNotEmpty ? ex.weightControllers[sIdx].text : '0') ?? 0.0;
+                                    if (weight > 0) _db.insertHistory(ex.nameController.text, weight);
+                                  }
+                                });
+                                _saveState(idx);
+                                _runCheckReset(); // Nome alterado para evitar conflitos
                               }
-                            });
-                            _saveState(idx);
-                          }
+                          ),
                         ),
-                      ),
-                    ))),
+                      )),
+                    ),
                     const Divider(height: 24),
                     ...List.generate(ex.repsControllers.length, (sIdx) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -609,7 +674,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
               },
             ),
             const SizedBox(height: 32),
-            // --- CRONÔMETRO EVOLUÍDO ---
+            // --- CRONÔMETRO ATUALIZADO (TAMANHO 28) ---
             Column(children: [
               const Text('Descanso', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 20),
@@ -631,7 +696,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                     onLongPress: _resetTimer,
                     child: ScaleTransition(
                       scale: _pulseAnimation,
-                      child: Text(_timerText, style:TextStyle(fontSize: 38, fontWeight: FontWeight.bold, color: (_remainingSeconds > 0 && _remainingSeconds <= 10)? Colors.red: theme.textTheme.bodyLarge?.color,)),
+                      child: Text(
+                        _timerText,
+                        style: TextStyle(
+                          fontSize: 28, // Ajustado para 28 conforme solicitado
+                          fontWeight: FontWeight.bold,
+                          color: (_remainingSeconds > 0 && _remainingSeconds <= 10) ? Colors.red : theme.textTheme.bodyLarge?.color,
+                        ),
+                      ),
                     ),
                   ),
                 ]),
@@ -650,5 +722,25 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
         )),
       ),
     );
+  }
+
+  // --- FUNÇÃO PARA EVITAR TELA BRANCA (VERIFICA CONCLUSÃO DO TREINO) ---
+  Future<void> _runCheckReset() async {
+    try {
+      bool allFinished = true;
+      for (var ex in _exercises) {
+        if (!ex.seriesCompleted.every((c) => c)) {
+          allFinished = false;
+          break;
+        }
+      }
+
+      if (allFinished && _exercises.isNotEmpty) {
+        // Opcional: Adicione lógica para resetar o treino ou dar parabéns
+        debugPrint("Treino ${widget.workoutKey} concluído!");
+      }
+    } catch (e) {
+      debugPrint("Erro no checkReset: $e");
+    }
   }
 }

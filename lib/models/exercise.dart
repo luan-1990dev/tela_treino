@@ -29,22 +29,21 @@ class Exercise {
         );
 
   void updateSeriesCount(int newCount) {
-    if (newCount < 1) return;
-    if (newCount == repsControllers.length) return;
+    if (newCount < 1 || newCount > 10) return; // Limite de segurança
 
-    if (newCount > repsControllers.length) {
-      int diff = newCount - repsControllers.length;
-      repsControllers.addAll(List.generate(diff, (_) => TextEditingController(text: '12')));
-      weightControllers.addAll(List.generate(diff, (_) => TextEditingController()));
-    } else {
-      for (int i = repsControllers.length - 1; i >= newCount; i--) {
-        repsControllers[i].dispose();
-        weightControllers[i].dispose();
+    // Ajusta a lista de checkboxes
+    if (newCount > seriesCompleted.length) {
+      seriesCompleted.addAll(List.filled(newCount - seriesCompleted.length, false));
+      // Ajusta também os controladores de texto para não dar erro de índice
+      for (int i = 0; i < (newCount - repsControllers.length); i++) {
+        repsControllers.add(TextEditingController(text: '12'));
+        weightControllers.add(TextEditingController(text: ''));
       }
+    } else {
+      seriesCompleted = seriesCompleted.sublist(0, newCount);
       repsControllers = repsControllers.sublist(0, newCount);
       weightControllers = weightControllers.sublist(0, newCount);
     }
-    seriesCountController.text = newCount.toString();
   }
 
   void dispose() {
