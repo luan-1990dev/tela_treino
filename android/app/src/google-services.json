@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "648657750085",
+    "project_id": "tela-treino",
+    "storage_bucket": "tela-treino.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:648657750085:android:18d9a0b86ad87e2f7a7b2c",
+        "android_client_info": {
+          "package_name": "com.treinando.tela_treino"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwVBY6P2YmAzuAhdtoQxPVqpjtlAldHCY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
