@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../main.dart';
 import 'workout_screen.dart';
@@ -14,6 +15,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final StorageService _storage = StorageService();
+  final _auth = FirebaseAuth.instance;
 
   @override
   void initState() {
@@ -22,6 +24,70 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
         _storage.saveLastWorkout('Treino ${String.fromCharCode(65 + _tabController.index)}');
+      }
+    });
+
+    _showWelcomeSequence();
+  }
+
+  String _getUserName() {
+    final email = _auth.currentUser?.email ?? "Atleta";
+    return email.split('@')[0].split('.')[0].split('_')[0].toUpperCase();
+  }
+
+  void _showWelcomeSequence() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final name = _getUserName();
+      final screenHeight = MediaQuery.of(context).size.height;
+      
+      // 1. SNACKBAR MOTIVACIONAL CENTRALIZADO
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.blue.shade700,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 50,
+          left: 20,
+          right: 20,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.bolt, color: Colors.amber, size: 32),
+            const SizedBox(height: 8),
+            Text(
+              "BORA TREINAR, $name!\nFOCO NA EVOLUÇÃO! 💪",
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+      ));
+
+      await Future.delayed(const Duration(seconds: 5, milliseconds: 500));
+
+      if (!mounted) return;
+
+      // 2. SNACKBAR DE HISTÓRICO CENTRALIZADO
+      final last = await _storage.getLastWorkout();
+      if (last != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.orange.shade800,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          margin: EdgeInsets.only(
+            bottom: screenHeight / 2 - 50,
+            left: 20,
+            right: 20,
+          ),
+          content: Text(
+            'Último treino realizado:\n$last',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+        ));
       }
     });
   }
@@ -37,12 +103,20 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: Icon(theme.brightness == Brightness.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+          onPressed: () => themeManager.value = theme.brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark,
+          tooltip: 'Alternar Tema',
+        ),
         centerTitle: true,
         title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: Icon(theme.brightness == Brightness.dark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-            onPressed: () => themeManager.value = theme.brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark,
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+            },
+            tooltip: 'Sair do App',
           ),
         ],
         bottom: TabBar(
@@ -52,7 +126,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           labelColor: theme.colorScheme.primary,
           unselectedLabelColor: theme.colorScheme.onSurface.withAlpha(179),
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          tabs: const [Tab(text: 'Treino A'), Tab(text: 'Treino B'), Tab(text: 'Treino C'), Tab(text: 'Treino D')],
+          tabs: const [
+            Tab(text: 'Treino A'),
+            Tab(text: 'Treino B'),
+            Tab(text: 'Treino C'),
+            Tab(text: 'Treino D'),
+          ],
         ),
       ),
       body: TabBarView(

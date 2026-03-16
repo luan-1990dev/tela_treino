@@ -4,12 +4,12 @@ class Exercise {
   final TextEditingController nameController;
   final TextEditingController seriesCountController;
   List<bool> seriesCompleted;
-  
   List<TextEditingController> repsControllers;
   List<TextEditingController> weightControllers;
-  
   String previousWeight = '';
-  bool shouldSuggestIncrease = false;
+
+  // Lista de repetições padrão solicitada
+  static const List<String> _defaultRepsProgressive = ['12', '10', '8', '6'];
 
   Exercise({
     required String name,
@@ -18,10 +18,19 @@ class Exercise {
     List<String>? initialWeights,
   })  : nameController = TextEditingController(text: name),
         seriesCountController = TextEditingController(text: seriesCount.toString()),
-        seriesCompleted = List.generate(4, (_) => false),
+        seriesCompleted = List.generate(seriesCount, (_) => false),
         repsControllers = List.generate(
           seriesCount,
-          (i) => TextEditingController(text: (initialReps != null && i < initialReps.length) ? initialReps[i] : '12'),
+          (i) {
+            String initialValue = '12';
+            if (initialReps != null && i < initialReps.length) {
+              initialValue = initialReps[i];
+            } else if (i < _defaultRepsProgressive.length) {
+              // Aplica 12, 10, 8, 6 caso não existam dados salvos
+              initialValue = _defaultRepsProgressive[i];
+            }
+            return TextEditingController(text: initialValue);
+          },
         ),
         weightControllers = List.generate(
           seriesCount,
@@ -29,31 +38,31 @@ class Exercise {
         );
 
   void updateSeriesCount(int newCount) {
-    if (newCount < 1 || newCount > 10) return; // Limite de segurança
-
-    // Ajusta a lista de checkboxes
+    if (newCount < 1) return;
     if (newCount > seriesCompleted.length) {
-      seriesCompleted.addAll(List.filled(newCount - seriesCompleted.length, false));
-      // Ajusta também os controladores de texto para não dar erro de índice
-      for (int i = 0; i < (newCount - repsControllers.length); i++) {
-        repsControllers.add(TextEditingController(text: '12'));
+      int diff = newCount - seriesCompleted.length;
+      seriesCompleted.addAll(List.generate(diff, (_) => false));
+      
+      // Adiciona novos controladores com os valores padrão se estiverem no range 1-4
+      for (int i = repsControllers.length; i < newCount; i++) {
+        String defaultValue = (i < _defaultRepsProgressive.length) 
+            ? _defaultRepsProgressive[i] 
+            : '12';
+        repsControllers.add(TextEditingController(text: defaultValue));
         weightControllers.add(TextEditingController(text: ''));
       }
-    } else {
+    } else if (newCount < seriesCompleted.length) {
       seriesCompleted = seriesCompleted.sublist(0, newCount);
       repsControllers = repsControllers.sublist(0, newCount);
       weightControllers = weightControllers.sublist(0, newCount);
     }
+    seriesCountController.text = newCount.toString();
   }
 
   void dispose() {
     nameController.dispose();
     seriesCountController.dispose();
-    for (var c in repsControllers) {
-      c.dispose();
-    }
-    for (var c in weightControllers) {
-      c.dispose();
-    }
+    for (var c in repsControllers) c.dispose();
+    for (var c in weightControllers) c.dispose();
   }
 }
