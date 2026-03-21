@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 class Exercise {
   final TextEditingController nameController;
   final TextEditingController seriesCountController;
+  final TextEditingController notesController; // Novo campo para notas
   List<bool> seriesCompleted;
   List<TextEditingController> repsControllers;
   List<TextEditingController> weightControllers;
   String previousWeight = '';
 
-  // Lista de repetições padrão solicitada
   static const List<String> _defaultRepsProgressive = ['12', '10', '8', '6'];
 
   Exercise({
@@ -16,8 +16,10 @@ class Exercise {
     required int seriesCount,
     List<String>? initialReps,
     List<String>? initialWeights,
+    String initialNotes = '', // Parâmetro opcional para notas iniciais
   })  : nameController = TextEditingController(text: name),
         seriesCountController = TextEditingController(text: seriesCount.toString()),
+        notesController = TextEditingController(text: initialNotes),
         seriesCompleted = List.generate(seriesCount, (_) => false),
         repsControllers = List.generate(
           seriesCount,
@@ -26,7 +28,6 @@ class Exercise {
             if (initialReps != null && i < initialReps.length) {
               initialValue = initialReps[i];
             } else if (i < _defaultRepsProgressive.length) {
-              // Aplica 12, 10, 8, 6 caso não existam dados salvos
               initialValue = _defaultRepsProgressive[i];
             }
             return TextEditingController(text: initialValue);
@@ -42,8 +43,6 @@ class Exercise {
     if (newCount > seriesCompleted.length) {
       int diff = newCount - seriesCompleted.length;
       seriesCompleted.addAll(List.generate(diff, (_) => false));
-      
-      // Adiciona novos controladores com os valores padrão se estiverem no range 1-4
       for (int i = repsControllers.length; i < newCount; i++) {
         String defaultValue = (i < _defaultRepsProgressive.length) 
             ? _defaultRepsProgressive[i] 
@@ -62,6 +61,7 @@ class Exercise {
   void dispose() {
     nameController.dispose();
     seriesCountController.dispose();
+    notesController.dispose(); // Dispose do controlador de notas
     for (var c in repsControllers) c.dispose();
     for (var c in weightControllers) c.dispose();
   }

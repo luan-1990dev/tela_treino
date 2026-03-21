@@ -13,7 +13,20 @@
           "package_name": "com.treinando.tela_treino"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "648657750085-h05anhv2q0gh0ctkkjg6l6ok45jn1ofi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.treinando.tela_treino",
+            "certificate_hash": "43a0b2cac23b1190898285d38931c595143439b1"
+          }
+        },
+        {
+          "client_id": "648657750085-vtc81co337l99narltv38l5uu6usmptt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDwVBY6P2YmAzuAhdtoQxPVqpjtlAldHCY"
@@ -21,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "648657750085-vtc81co337l99narltv38l5uu6usmptt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

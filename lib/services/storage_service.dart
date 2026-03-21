@@ -51,6 +51,17 @@ class StorageService {
     return prefs.getInt('workout_${key}_ex_${idx}_count');
   }
 
+  // NOVOS MÉTODOS PARA NOTAS
+  Future<void> saveExerciseNotes(String key, int idx, String notes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('workout_${key}_ex_${idx}_notes', notes);
+  }
+
+  Future<String?> getExerciseNotes(String key, int idx) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('workout_${key}_ex_${idx}_notes');
+  }
+
   Future<void> savePrevWeight(String key, int idx, String w) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('workout_${key}_ex_${idx}_prev', w);

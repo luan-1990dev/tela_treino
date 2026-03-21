@@ -39,31 +39,37 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Inicia o processo de seleção de conta
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      
+      // Limpa qualquer sessão anterior para forçar a escolha da conta
+      await googleSignIn.signOut();
+      
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       
       if (googleUser == null) {
-        // Usuário cancelou a seleção
         setState(() => _isLoading = false);
         return;
       }
 
-      // 2. Obtém os detalhes da autenticação
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       
-      // 3. Cria a credencial para o Firebase
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      // 4. Faz o login no Firebase
       await _auth.signInWithCredential(credential);
-      
       if (mounted) _goToHome();
     } catch (e) {
-      debugPrint("ERRO GOOGLE SIGN IN: $e");
-      _showSnackBar('Erro ao entrar com Google. Verifique a chave SHA-1 no Firebase.');
+      // DEBUG: Imprime o erro completo para identificarmos a causa
+      debugPrint("ERRO DETALHADO GOOGLE: $e");
+      
+      String errorMsg = 'Erro ao entrar com Google.';
+      if (e.toString().contains('7')) errorMsg = 'Erro de rede ou permissão (7).';
+      if (e.toString().contains('10')) errorMsg = 'SHA-1 incorreto ou App não registrado (10).';
+      if (e.toString().contains('12500')) errorMsg = 'Erro de configuração no Console Firebase (12500).';
+      
+      _showSnackBar("$errorMsg\nDetalhe: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -115,7 +121,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(seconds: 6),
+    ));
   }
 
   @override
