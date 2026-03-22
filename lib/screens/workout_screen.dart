@@ -111,7 +111,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     
     _syncWithFirebase();
 
-    if (_exercises.every((e) => e.seriesCompleted.every((c) => c))) {
+    bool allChecked = _exercises.every((e) => e.seriesCompleted.every((c) => c));
+    if (allChecked && _exercises.isNotEmpty) {
       _showWorkoutCompleteSnackBar();
     }
   }
@@ -255,52 +256,113 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  // --- GRÁFICO DE TENDÊNCIA DE 3 PONTOS (CORRIGIDO) ---
   void _showHistoryChart(String name) async {
     final history = await _db.getHistory(name);
     if (history.isEmpty) return;
+
+    double startWeight = (history.first['weight'] as num).toDouble();
+    double currentWeight = (history.last['weight'] as num).toDouble();
+    double diff = currentWeight - startWeight;
+    double trendWeight = currentWeight + (diff > 0 ? diff * 0.2 : 2.0);
+
+    final List<FlSpot> trendSpots = [
+      FlSpot(0, startWeight),
+      FlSpot(1, currentWeight),
+      FlSpot(2, trendWeight),
+    ];
 
     if (mounted) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           backgroundColor: const Color(0xFF1A1A1A),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text('Evolução: $name', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Center(child: Text('Tendência: $name', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
           content: Container(
-            height: 220,
+            height: 260,
             width: double.maxFinite,
-            padding: const EdgeInsets.only(top: 24, right: 16),
-            child: LineChart(
-              LineChartData(
-                gridData: const FlGridData(show: false),
-                titlesData: const FlTitlesData(show: false),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: history.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value['weight'] as double)).toList(),
-                    isCurved: true,
-                    color: Colors.blue,
-                    barWidth: 4,
-                    isStrokeCapRound: true,
-                    dotData: const FlDotData(show: true),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      color: Colors.blue.withValues(alpha: 0.15),
+            child: Column(
+              children: [
+                Expanded(
+                  child: LineChart(
+                    LineChartData(
+                      gridData: const FlGridData(show: false),
+                      titlesData: FlTitlesData(
+                        show: true,
+                        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            getTitlesWidget: (val, meta) {
+                              if (val == 0) return const Text('INÍCIO', style: TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold));
+                              if (val == 1) return const Text('HOJE', style: TextStyle(color: Colors.blue, fontSize: 9, fontWeight: FontWeight.bold));
+                              if (val == 2) return const Text('META', style: TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.bold));
+                              return const SizedBox();
+                            },
+                          ),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: trendSpots,
+                          isCurved: true,
+                          curveSmoothness: 0.35,
+                          color: Colors.blue,
+                          barWidth: 5,
+                          isStrokeCapRound: true,
+                          dotData: FlDotData(
+                            show: true,
+                            getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
+                              radius: 6,
+                              color: index == 1 ? Colors.blue : (index == 2 ? Colors.green : Colors.grey),
+                              strokeWidth: 2,
+                              strokeColor: Colors.white,
+                            ),
+                          ),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.blue.withValues(alpha: 0.2), Colors.blue.withValues(alpha: 0.0)],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildStat('Início', '${startWeight.toStringAsFixed(1)}kg'),
+                    _buildStat('Hoje', '${currentWeight.toStringAsFixed(1)}kg'),
+                    _buildStat('Projeção', '${trendWeight.toStringAsFixed(1)}kg'),
+                  ],
+                )
+              ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('FECHAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-            )
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('VOLTAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
           ],
         ),
       );
     }
+  }
+
+  Widget _buildStat(String label, String value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+      ],
+    );
   }
 
   void _requestRemove(int index) {
@@ -360,7 +422,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     final theme = Theme.of(context);
     if (_isLoading) return const Center(child: CircularProgressIndicator());
 
-    // CORREÇÃO: showQuickJump deve estar dentro do build
     bool showQuickJump = _scrollController.hasClients && _scrollController.offset < (_scrollController.position.maxScrollExtent - 250);
 
     return Scaffold(
