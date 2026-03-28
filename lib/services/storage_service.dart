@@ -11,6 +11,17 @@ class StorageService {
     return prefs.getStringList('workout_${key}_names');
   }
 
+  // NOVOS MÉTODOS PARA TÍTULO DO TREINO
+  Future<void> saveWorkoutTitle(String key, String title) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('workout_${key}_title', title);
+  }
+
+  Future<String?> getWorkoutTitle(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('workout_${key}_title');
+  }
+
   Future<void> saveSeriesState(String key, int idx, List<bool> s) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('workout_${key}_ex_${idx}_series', s.map((e) => e.toString()).toList());
@@ -51,7 +62,6 @@ class StorageService {
     return prefs.getInt('workout_${key}_ex_${idx}_count');
   }
 
-  // NOVOS MÉTODOS PARA NOTAS
   Future<void> saveExerciseNotes(String key, int idx, String notes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('workout_${key}_ex_${idx}_notes', notes);

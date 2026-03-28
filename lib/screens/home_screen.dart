@@ -20,7 +20,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    // Inicializa com 4 abas
     _tabController = TabController(length: 4, vsync: this);
+    
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
         _storage.saveLastWorkout('Treino ${String.fromCharCode(65 + _tabController.index)}');
@@ -42,7 +44,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       
       // 1. SNACKBAR MOTIVACIONAL CENTRALIZADO
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        duration: const Duration(seconds: 5),
+        duration: const Duration(seconds: 4),
         behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.blue.shade700,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -65,15 +67,27 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         ),
       ));
 
-      await Future.delayed(const Duration(seconds: 5, milliseconds: 500));
+      await Future.delayed(const Duration(seconds: 4, milliseconds: 500));
 
       if (!mounted) return;
 
-      // 2. SNACKBAR DE HISTÓRICO CENTRALIZADO
+      // 2. BUSCA ÚLTIMO TREINO E REDIRECIONA
       final last = await _storage.getLastWorkout();
       if (last != null && mounted) {
+        
+        // Lógica de Redirecionamento: Mapeia 'Treino A' -> 0, 'Treino B' -> 1, etc.
+        int targetIndex = 0;
+        if (last.contains('A')) targetIndex = 0;
+        else if (last.contains('B')) targetIndex = 1;
+        else if (last.contains('C')) targetIndex = 2;
+        else if (last.contains('D')) targetIndex = 3;
+
+        setState(() {
+          _tabController.animateTo(targetIndex);
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.orange.shade800,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
