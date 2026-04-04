@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class TimerService extends ChangeNotifier {
   // Singleton pattern
@@ -38,7 +39,7 @@ class TimerService extends ChangeNotifier {
       } else {
         _timer?.cancel();
         _timerFinished = true;
-        _startContinuousVibration();
+        _startAlert(); // Inicia vibração e som simultâneos
         notifyListeners();
       }
     });
@@ -70,7 +71,15 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _startContinuousVibration() {
+  // ALERTA SINCRONIZADO
+  void _startAlert() {
+    // 1. Inicia o SOM em looping contínuo (Nativo)
+    FlutterRingtonePlayer().playAlarm(
+      looping: true,
+      asAlarm: true,
+    );
+
+    // 2. Inicia a VIBRAÇÃO em loop periódico
     _vibrationTimer?.cancel();
     _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
       Vibration.vibrate(pattern: [500, 1000]);
@@ -80,5 +89,6 @@ class TimerService extends ChangeNotifier {
   void stopVibration() {
     _vibrationTimer?.cancel();
     Vibration.cancel();
+    FlutterRingtonePlayer().stop(); // Para o som instantaneamente
   }
 }

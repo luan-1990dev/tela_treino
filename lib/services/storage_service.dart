@@ -11,7 +11,6 @@ class StorageService {
     return prefs.getStringList('workout_${key}_names');
   }
 
-  // NOVOS MÉTODOS PARA TÍTULO DO TREINO
   Future<void> saveWorkoutTitle(String key, String title) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('workout_${key}_title', title);
@@ -20,6 +19,33 @@ class StorageService {
   Future<String?> getWorkoutTitle(String key) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('workout_${key}_title');
+  }
+
+  // PERSISTÊNCIA DE DATA PARA SNACKBARS
+  Future<void> saveLastWelcomeDate(String date) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_welcome_date', date);
+  }
+
+  Future<String?> getLastWelcomeDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('last_welcome_date');
+  }
+
+  Future<void> saveExerciseTimestamps(String key, int idx, DateTime? start, DateTime? end) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (start != null) await prefs.setString('workout_${key}_ex_${idx}_start', start.toIso8601String());
+    if (end != null) await prefs.setString('workout_${key}_ex_${idx}_end', end.toIso8601String());
+  }
+
+  Future<Map<String, DateTime?>> getExerciseTimestamps(String key, int idx) async {
+    final prefs = await SharedPreferences.getInstance();
+    final startStr = prefs.getString('workout_${key}_ex_${idx}_start');
+    final endStr = prefs.getString('workout_${key}_ex_${idx}_end');
+    return {
+      'start': startStr != null ? DateTime.parse(startStr) : null,
+      'end': endStr != null ? DateTime.parse(endStr) : null,
+    };
   }
 
   Future<void> saveSeriesState(String key, int idx, List<bool> s) async {
