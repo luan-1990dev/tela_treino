@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "648657750085-3gbv8pvbkf794nchi94oogfhbqvtsqfd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.treinando.tela_treino",
+            "certificate_hash": "65e1574d0721e06680a9f430153ba916b3820d6f"
+          }
+        },
+        {
           "client_id": "648657750085-h05anhv2q0gh0ctkkjg6l6ok45jn1ofi.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

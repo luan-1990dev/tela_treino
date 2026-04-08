@@ -4,7 +4,6 @@ import 'package:vibration/vibration.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class TimerService extends ChangeNotifier {
-  // Singleton pattern
   static final TimerService _instance = TimerService._internal();
   factory TimerService() => _instance;
   TimerService._internal();
@@ -32,14 +31,13 @@ class TimerService extends ChangeNotifier {
     
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_isPaused) return;
-      
       if (_remainingSeconds > 0) {
         _remainingSeconds--;
         notifyListeners();
       } else {
         _timer?.cancel();
         _timerFinished = true;
-        _startAlert(); // Inicia vibração e som simultâneos
+        _startAlert(); 
         notifyListeners();
       }
     });
@@ -49,10 +47,7 @@ class TimerService extends ChangeNotifier {
   void adjustTimer(int delta) {
     _remainingSeconds = (_remainingSeconds + delta).clamp(0, 999);
     if (_initialSeconds < _remainingSeconds) _initialSeconds = _remainingSeconds;
-    
-    if ((_timer == null || !_timer!.isActive) && _remainingSeconds > 0) {
-      startTimer(_remainingSeconds);
-    }
+    if ((_timer == null || !_timer!.isActive) && _remainingSeconds > 0) startTimer(_remainingSeconds);
     notifyListeners();
   }
 
@@ -71,15 +66,8 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ALERTA SINCRONIZADO
   void _startAlert() {
-    // 1. Inicia o SOM em looping contínuo (Nativo)
-    FlutterRingtonePlayer().playAlarm(
-      looping: true,
-      asAlarm: true,
-    );
-
-    // 2. Inicia a VIBRAÇÃO em loop periódico
+    FlutterRingtonePlayer().playAlarm(looping: true, asAlarm: true);
     _vibrationTimer?.cancel();
     _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
       Vibration.vibrate(pattern: [500, 1000]);
@@ -89,6 +77,6 @@ class TimerService extends ChangeNotifier {
   void stopVibration() {
     _vibrationTimer?.cancel();
     Vibration.cancel();
-    FlutterRingtonePlayer().stop(); // Para o som instantaneamente
+    FlutterRingtonePlayer().stop();
   }
 }

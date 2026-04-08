@@ -31,7 +31,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   bool _isLoading = true;
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
-  int _lastMarkedIndex = 0;
 
   @override
   bool get wantKeepAlive => true;
@@ -49,18 +48,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     _loadData();
   }
 
-  void _onTimerTick() {
-    if (mounted) {
-      setState(() {});
-      if (_timerService.remainingSeconds <= 10 && _timerService.remainingSeconds > 0 && !_timerService.isPaused) {
-        if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
-      } else if (_timerService.timerFinished) {
-        if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
-      } else {
-        _pulseController.stop();
-      }
-    }
-  }
+  void _onTimerTick() { if (mounted) setState(() {}); }
 
   @override
   void dispose() {
@@ -74,14 +62,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   Future<void> _loadData() async {
     try {
       if (mounted) setState(() => _isLoading = true);
+      
+      final cloudData = await _firestore.getWorkoutFromCloud(widget.workoutKey);
+      List<String>? names;
+
+      if (cloudData != null && cloudData.exists) {
+        final data = cloudData.data() as Map<String, dynamic>;
+        names = List<String>.from(data['names'] ?? []);
+        if (names.isNotEmpty) {
+          await _storage.saveExerciseNames(widget.workoutKey, names);
+          if (data['workoutTitle'] != null) await _storage.saveWorkoutTitle(widget.workoutKey, data['workoutTitle']);
+        }
+      }
+
+      if (names == null || names.isEmpty) names = await _storage.getExerciseNames(widget.workoutKey);
+      if (names == null || names.isEmpty) {
+        names = ['Supino reto', 'Supino inclinado', 'Crucifixo', 'Desenvolvimento', 'Elevação lateral', 'Tríceps corda'];
+        await _storage.saveExerciseNames(widget.workoutKey, names);
+      }
+
       final savedTitle = await _storage.getWorkoutTitle(widget.workoutKey);
       if (savedTitle != null) _titleController.text = savedTitle;
 
-      List<String>? names = await _storage.getExerciseNames(widget.workoutKey);
-      if (names == null || names.isEmpty) {
-        names = _getDefaultExercises(widget.workoutKey);
-        await _storage.saveExerciseNames(widget.workoutKey, names);
-      }
       final loaded = <Exercise>[];
       for (int i = 0; i < names.length; i++) {
         final savedCount = await _storage.getSeriesCount(widget.workoutKey, i) ?? 4;
@@ -91,15 +93,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
         final times = await _storage.getExerciseTimestamps(widget.workoutKey, i);
         
         final ex = Exercise(
-          name: names[i], 
-          seriesCount: savedCount, 
-          initialReps: reps, 
-          initialWeights: weights, 
-          initialNotes: notes,
-          startTime: times['start'],
-          endTime: times['end'],
+          name: names[i], seriesCount: savedCount, initialReps: reps, initialWeights: weights, initialNotes: notes,
+          startTime: times['start'], endTime: times['end'],
         );
-        
         final series = await _storage.getSeriesState(widget.workoutKey, i);
         if (series != null) { ex.seriesCompleted = List.from(series); ex.updateSeriesCount(savedCount); }
         loaded.add(ex);
@@ -110,31 +106,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     }
   }
 
-  List<String> _getDefaultExercises(String key) {
-    if (key == 'A') return ['Supino reto', 'Pec deck', 'Elevação lateral', 'Tríceps polia'];
-    if (key == 'B') return ['Puxador frontal', 'Remada baixa', 'Rosca direta', 'Rosca alternada'];
-    return ['Exercício 1', 'Exercício 2'];
-  }
-
-  double _calculateCurrentTotalVolume() {
-    double total = 0;
-    for (var ex in _exercises) {
-      for (int i = 0; i < ex.weightControllers.length; i++) {
-        total += (double.tryParse(ex.repsControllers[i].text) ?? 0) * (double.tryParse(ex.weightControllers[i].text) ?? 0);
-      }
-    }
-    return total;
-  }
-
-  Future<double> _calculatePreviousTotalVolume() async {
-    double totalPrev = 0;
-    for (var ex in _exercises) {
-      final history = await _db.getHistory(ex.nameController.text);
-      if (history.length >= 2) {
-        totalPrev += ((history[history.length - 2]['weight'] as num).toDouble() * 10 * 4);
-      }
-    }
-    return totalPrev;
+  Future<void> _autoSync() async {
+    try {
+      final names = _exercises.map((e) => e.nameController.text).toList();
+      await _firestore.syncWorkoutToCloud(
+        workoutKey: widget.workoutKey,
+        workoutTitle: _titleController.text,
+        names: names,
+        seriesStates: {for (var i = 0; i < _exercises.length; i++) i: _exercises[i].seriesCompleted},
+        repsLists: {for (var i = 0; i < _exercises.length; i++) i: _exercises[i].repsControllers.map((c) => c.text).toList()},
+        weightsLists: {for (var i = 0; i < _exercises.length; i++) i: _exercises[i].weightControllers.map((c) => c.text).toList()},
+        notesLists: {for (var i = 0; i < _exercises.length; i++) i: _exercises[i].notesController.text},
+      );
+    } catch (e) { debugPrint('Erro auto-sync: $e'); }
   }
 
   Future<void> _saveState(int index) async {
@@ -148,73 +132,140 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     await _storage.saveSeriesCount(widget.workoutKey, index, ex.seriesCompleted.length);
     await _storage.saveExerciseNotes(widget.workoutKey, index, ex.notesController.text);
     await _storage.saveExerciseTimestamps(widget.workoutKey, index, ex.startTime, ex.endTime);
-    _firestore.syncWorkoutToCloud(workoutKey: widget.workoutKey, names: _exercises.map((e) => e.nameController.text).toList(), seriesStates: {}, repsLists: {}, weightsLists: {}, notesLists: {});
-    
+    _autoSync();
+
+    int completedExercises = _exercises.where((e) => e.seriesCompleted.every((c) => c)).length;
+    if (completedExercises == _exercises.length - 1 && completedExercises > 0) {
+      _showMotivationalSnackBar();
+    }
+
     if (_exercises.every((e) => e.seriesCompleted.every((c) => c))) _showWorkoutCompleteSnackBar();
+  }
+
+  void _showMotivationalSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 5),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.orange.shade700,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      content: const Row(
+        children: [
+          Icon(Icons.workspace_premium, color: Colors.white),
+          SizedBox(width: 12),
+          Expanded(child: Text("Agora falta pouco, só falta mais um treino para a glória eterna! 🏆", style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+      ),
+    ));
   }
 
   void _showWorkoutCompleteSnackBar() async {
     final currentVolume = _calculateCurrentTotalVolume();
     final previousVolume = await _calculatePreviousTotalVolume();
     final diff = currentVolume - previousVolume;
-    
     Duration totalDuration = Duration.zero;
-    for (var ex in _exercises) {
-      if (ex.startTime != null && ex.endTime != null) {
-        totalDuration += ex.endTime!.difference(ex.startTime!);
-      }
-    }
+    for (var ex in _exercises) if (ex.startTime != null && ex.endTime != null) totalDuration += ex.endTime!.difference(ex.startTime!);
 
-    String emoji = diff > 5 ? "😁" : (diff < -5 ? "😔" : "😐");
-    Color statusColor = diff > 5 ? Colors.greenAccent : (diff < -5 ? Colors.redAccent : Colors.white);
+    String emoji = '😐';
+    Color statusColor = Colors.white;
+    String trendText = 'peso mantido';
+    String arrow = '-';
+
+    if (diff > 0.5) {
+      emoji = '😁';
+      statusColor = Colors.greenAccent;
+      trendText = 'aumento';
+      arrow = '↑';
+    } else if (diff < -0.5) {
+      emoji = '😔';
+      statusColor = Colors.redAccent;
+      trendText = 'diminuição';
+      arrow = '↓';
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 15), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 80, left: 20, right: 20), backgroundColor: Colors.blue.shade900,
+      duration: const Duration(seconds: 15), 
+      behavior: SnackBarBehavior.floating, 
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), 
+      margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 80, left: 20, right: 20), 
+      backgroundColor: const Color(0xFF0D47A1), // Azul escuro premium
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(emoji, style: const TextStyle(fontSize: 44)),
         const SizedBox(height: 12),
         const Text('Treino concluído!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
-        const SizedBox(height: 12),
-        Text(
-          'Tempo Total: ${totalDuration.inMinutes} min ${totalDuration.inSeconds % 60} seg',
-          style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-        ),
         const SizedBox(height: 8),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(diff > 5 ? Icons.arrow_upward : (diff < -5 ? Icons.arrow_downward : Icons.remove), color: statusColor, size: 24),
-          const SizedBox(width: 8),
-          Text('${currentVolume.toStringAsFixed(1)} kg', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: statusColor)),
-        ]),
-        Text('${diff.abs().toStringAsFixed(1)} kg ${diff > 5 ? "aumento" : (diff < -5 ? "diminuição" : "mantido")}', style: TextStyle(fontSize: 13, color: statusColor.withValues(alpha: 0.8))),
+        Text(
+          'Tempo Total: ${totalDuration.inMinutes} min ${totalDuration.inSeconds % 60} seg', 
+          style: const TextStyle(fontSize: 15, color: Colors.white70)
+        ),
         const SizedBox(height: 16),
-        const Text('Parabéns pela dedicação! 💪', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.white70)),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(arrow, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: statusColor)),
+          const SizedBox(width: 8),
+          Text('${currentVolume.toStringAsFixed(1)} kg', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: statusColor)),
+        ]),
+        Text(
+          '${diff.abs().toStringAsFixed(1)} kg $trendText', 
+          style: TextStyle(fontSize: 14, color: statusColor.withOpacity(0.9), fontWeight: FontWeight.w500)
+        ),
+        const SizedBox(height: 20),
+        const Text('Parabéns pela dedicação! 💪', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.white60)),
       ]),
     ));
+  }
+
+  double _calculateCurrentTotalVolume() {
+    double total = 0;
+    for (var ex in _exercises) for (int i = 0; i < ex.weightControllers.length; i++) {
+      double reps = double.tryParse(ex.repsControllers[i].text) ?? 0;
+      double weight = double.tryParse(ex.weightControllers[i].text) ?? 0;
+      total += (reps * weight);
+    }
+    return total;
+  }
+
+  Future<double> _calculatePreviousTotalVolume() async {
+    double totalPrev = 0;
+    for (var ex in _exercises) {
+      final history = await _db.getHistory(ex.nameController.text);
+      // Pega o volume do último treino registrado no banco para este exercício
+      if (history.length >= 2) {
+        // Assume 4 séries de 10 reps do treino anterior para comparação de volume
+        totalPrev += ((history[history.length - 2]['weight'] as num).toDouble() * 10 * 4);
+      }
+    }
+    return totalPrev;
   }
 
   void _scrollToPending() {
     _timerService.stopVibration();
     int targetIndex = -1;
     for (int i = 0; i < _exercises.length; i++) {
-      if (!_exercises[i].seriesCompleted.every((c) => c)) { targetIndex = i; break; }
+      int lastChecked = -1;
+      for (int j = 0; j < _exercises[i].seriesCompleted.length; j++) if (_exercises[i].seriesCompleted[j]) lastChecked = j;
+      if (lastChecked != -1) {
+        for (int j = 0; j <= lastChecked; j++) if (!_exercises[i].seriesCompleted[j]) { targetIndex = i; break; }
+      }
+      if (targetIndex != -1) break;
     }
-    if (targetIndex != -1) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Atenção: Existem séries pendentes! 🏋️‍♂️'), backgroundColor: Colors.orange, duration: Duration(seconds: 2)));
-      _scrollController.animateTo(targetIndex * 350.0, duration: const Duration(milliseconds: 800), curve: Curves.easeInOutQuart);
+    if (targetIndex == -1) {
+      for (int i = 0; i < _exercises.length; i++) if (!_exercises[i].seriesCompleted.every((c) => c)) { targetIndex = i; break; }
     }
+    if (targetIndex != -1) _scrollController.animateTo(targetIndex * 350.0, duration: const Duration(milliseconds: 800), curve: Curves.easeInOutQuart);
   }
 
-  Future<void> _launchYouTubeSearch(String exerciseName) async {
-    final query = 'Treino em FOCO como fazer ${exerciseName.toLowerCase()}';
-    final uri = Uri.parse('https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}');
-    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  void _addNew() {
+    final c = TextEditingController();
+    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Novo Exercício'), content: TextField(controller: c, autofocus: true, inputFormatters: [LengthLimitingTextInputFormatter(19)]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')), TextButton(onPressed: () async { if (c.text.isNotEmpty) { final names = _exercises.map((e) => e.nameController.text).toList()..add(c.text); await _storage.saveExerciseNames(widget.workoutKey, names); Navigator.pop(ctx); _loadData(); } }, child: const Text('Adicionar'))]));
   }
 
-  Future<void> _launchBenefitsSearch(String exerciseName) async {
-    final query = 'Quais os benefícios e como executar o exercício ${exerciseName.toLowerCase()}';
-    final uri = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query)}');
-    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  void _requestRemove(int index) {
+    final name = _exercises[index].nameController.text;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: Colors.orange, duration: const Duration(seconds: 15), behavior: SnackBarBehavior.floating, content: Column(mainAxisSize: MainAxisSize.min, children: [Text('Excluir "$name"?', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [ElevatedButton(onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[200], foregroundColor: Colors.black), child: const Text('CANCELAR')), ElevatedButton(onPressed: () { ScaffoldMessenger.of(context).hideCurrentSnackBar(); setState(() => _exercises.removeAt(index)); _saveState(0); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.black), child: const Text('SIM'))])])
+    ));
   }
 
   void _showNotesDialog(int index) {
@@ -222,7 +273,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     showDialog(context: context, builder: (ctx) => AlertDialog(
       backgroundColor: const Color(0xFF1A1A1A), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Text('Notas: ${ex.nameController.text}', style: const TextStyle(color: Colors.white, fontSize: 18)),
-      content: TextField(controller: ex.notesController, maxLines: 3, style: const TextStyle(color: Colors.white), decoration: InputDecoration(hintText: 'Configurações...', hintStyle: const TextStyle(color: Colors.grey), filled: true, fillColor: Colors.white.withValues(alpha: 0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
+      content: TextField(controller: ex.notesController, maxLines: 3, style: const TextStyle(color: Colors.white), decoration: InputDecoration(hintText: 'Configurações...', hintStyle: const TextStyle(color: Colors.grey), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none))),
       actions: [TextButton(onPressed: () { _saveState(index); Navigator.pop(ctx); }, child: const Text('SALVAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))],
     ));
   }
@@ -231,19 +282,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     final history = await _db.getHistory(name);
     if (history.isEmpty) return;
     final ex = _exercises[index];
-    String durationText = "--:--";
-    if (ex.startTime != null && ex.endTime != null) {
-      final diff = ex.endTime!.difference(ex.startTime!);
-      durationText = "${diff.inMinutes}:${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
-    }
+    String durationText = '--:--';
+    if (ex.startTime != null && ex.endTime != null) durationText = '${ex.endTime!.difference(ex.startTime!).inMinutes}:${(ex.endTime!.difference(ex.startTime!).inSeconds % 60).toString().padLeft(2, '0')}';
     double prevWeight = (history.length >= 2) ? (history[history.length-2]['weight'] as num).toDouble() : (history.first['weight'] as num).toDouble();
     double currentWeight = (history.last['weight'] as num).toDouble();
-    double trendWeight = currentWeight + (currentWeight > prevWeight ? (currentWeight - prevWeight) * 0.2 : 2.0);
+    double trendWeight = currentWeight + ((currentWeight - prevWeight) > 0 ? (currentWeight - prevWeight) * 0.2 : 2.0);
     if (mounted) {
       showDialog(context: context, builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)), title: Center(child: Text('Tendência: $name', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
         content: Container(height: 320, width: double.maxFinite, child: Column(children: [
-          Expanded(child: LineChart(LineChartData(gridData: const FlGridData(show: false), titlesData: FlTitlesData(show: true, leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, meta) { if (val == 0) return const Text('ONTEM', style: TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold)); if (val == 1) return const Text('HOJE', style: TextStyle(color: Colors.blue, fontSize: 9, fontWeight: FontWeight.bold)); if (val == 2) return const Text('META', style: TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.bold)); return const SizedBox(); }))), borderData: FlBorderData(show: false), lineBarsData: [LineChartBarData(spots: [FlSpot(0, (history.length >= 2 ? (history[history.length-2]['weight'] as num).toDouble() : (history.first['weight'] as num).toDouble())), FlSpot(1, currentWeight), FlSpot(2, trendWeight)], isCurved: true, curveSmoothness: 0.35, color: Colors.blue, barWidth: 5, isStrokeCapRound: true, dotData: FlDotData(show: true, getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(radius: 6, color: index == 1 ? Colors.blue : (index == 2 ? Colors.green : Colors.grey), strokeWidth: 2, strokeColor: Colors.white)), belowBarData: BarAreaData(show: true, gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.blue.withValues(alpha: 0.2), Colors.blue.withValues(alpha: 0.0)])))]))),
+          Expanded(child: LineChart(LineChartData(gridData: const FlGridData(show: false), titlesData: FlTitlesData(show: true, leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, meta) { if (val == 0) return const Text('ONTEM', style: TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold)); if (val == 1) return const Text('HOJE', style: TextStyle(color: Colors.blue, fontSize: 9, fontWeight: FontWeight.bold)); if (val == 2) return const Text('META', style: TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.bold)); return const SizedBox(); }))), borderData: FlBorderData(show: false), lineBarsData: [LineChartBarData(spots: [FlSpot(0, prevWeight), FlSpot(1, currentWeight), FlSpot(2, trendWeight)], isCurved: true, curveSmoothness: 0.35, color: Colors.blue, barWidth: 5, isStrokeCapRound: true, dotData: FlDotData(show: true, getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(radius: 6, color: index == 1 ? Colors.blue : (index == 2 ? Colors.green : Colors.grey), strokeWidth: 2, strokeColor: Colors.white)), belowBarData: BarAreaData(show: true, gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.blue.withOpacity(0.2), Colors.blue.withOpacity(0.0)])))]))),
           const SizedBox(height: 24), Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [_buildStat('Tempo Total', durationText), _buildStat('Hoje', '${currentWeight.toStringAsFixed(1)}kg', valueColor: Colors.blue), _buildStat('Projeção', '${trendWeight.toStringAsFixed(1)}kg', valueColor: Colors.green)])
         ])),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('VOLTAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))]
@@ -253,16 +301,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   Widget _buildStat(String label, String value, {Color? valueColor}) { return Column(children: [Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)), Text(value, style: TextStyle(color: valueColor ?? Colors.white, fontSize: 14, fontWeight: FontWeight.bold))]); }
 
-  void _requestRemove(int index) {
-    final name = _exercises[index].nameController.text;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: Colors.orange, duration: const Duration(seconds: 15), behavior: SnackBarBehavior.floating, content: Column(mainAxisSize: MainAxisSize.min, children: [Text('Excluir "$name"?', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [ElevatedButton(onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[200], foregroundColor: Colors.black), child: const Text('CANCELAR')), ElevatedButton(onPressed: () { ScaffoldMessenger.of(context).hideCurrentSnackBar(); setState(() => _exercises.removeAt(index)); _saveState(0); }, style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.black), child: const Text('SIM'))])])
-    ));
-  }
-
-  void _addNew() {
-    final c = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Novo Exercício'), content: TextField(controller: c, autofocus: true, inputFormatters: [LengthLimitingTextInputFormatter(19)]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')), TextButton(onPressed: () async { if (c.text.isNotEmpty) { final names = _exercises.map((e) => e.nameController.text).toList()..add(c.text); await _storage.saveExerciseNames(widget.workoutKey, names); Navigator.pop(ctx); _loadData(); } }, child: const Text('Adicionar'))]));
+  Future<void> _launchBenefitsSearch(String exerciseName) async {
+    final query = 'Quais os benefícios e como executar o exercício ${exerciseName.toLowerCase()}';
+    final uri = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query)}');
+    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -270,12 +312,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     super.build(context);
     final theme = Theme.of(context);
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    bool showQuickJump = _scrollController.hasClients && _scrollController.offset < (_scrollController.position.maxScrollExtent - 250);
     final titleColor = theme.brightness == Brightness.dark ? Colors.white : Colors.black;
     
     return Scaffold(
       floatingActionButton: Stack(children: [
-        if (showQuickJump) Positioned(left: 20, bottom: 16, child: FloatingActionButton.small(onPressed: () => _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut), backgroundColor: Colors.blue.withValues(alpha: 0.6), child: const Icon(Icons.timer, color: Colors.white))),
+        Positioned(left: 20, bottom: 16, child: FloatingActionButton.small(onPressed: () => _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut), backgroundColor: Colors.blue.withOpacity(0.6), child: const Icon(Icons.timer, color: Colors.white))),
         if (_timerService.timerFinished) Positioned(right: 20, bottom: 100, child: FloatingActionButton(onPressed: _scrollToPending, backgroundColor: Colors.blue, child: const Icon(Icons.arrow_upward, color: Colors.white))),
       ]),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
@@ -284,32 +325,69 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
         child: PIPView(builder: (context, isFloating) => SingleChildScrollView(
           controller: _scrollController, padding: const EdgeInsets.all(12.0),
           child: Column(children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [IconButton(icon: const Icon(Icons.clear_all, color: Colors.orange, size: 32), onPressed: () { setState(() { for (var e in _exercises) { for (var j = 0; j < e.seriesCompleted.length; j++) e.seriesCompleted[j] = false; e.startTime = null; e.endTime = null; } for (int i = 0; i < _exercises.length; i++) _saveState(i); }); }, tooltip: 'Limpar caixas'), IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 32), onPressed: _addNew, tooltip: 'Adicionar exercício')]),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              IconButton(icon: const Icon(Icons.clear_all, color: Colors.orange, size: 32), onPressed: () { setState(() { for (var e in _exercises) { for (var j = 0; j < e.seriesCompleted.length; j++) e.seriesCompleted[j] = false; e.startTime = null; e.endTime = null; } for (int i = 0; i < _exercises.length; i++) _saveState(i); }); }, tooltip: 'Limpar caixas'), 
+              IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 32), onPressed: _addNew, tooltip: 'Adicionar exercício'),
+            ]),
             const SizedBox(height: 8), Padding(padding: const EdgeInsets.symmetric(horizontal: 40), child: TextField(controller: _titleController, textAlign: TextAlign.center, style: TextStyle(color: titleColor, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1.5), decoration: const InputDecoration(border: InputBorder.none, hintText: "Nome do Treino"), onChanged: (v) => _saveState(0))),
             const Divider(height: 32),
             ...List.generate(_exercises.length, (idx) {
               final ex = _exercises[idx];
-              return Card(key: ValueKey('ex_$idx'), margin: const EdgeInsets.symmetric(vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: ex.seriesCompleted.every((c) => c) ? Colors.green : Colors.grey.shade400)), child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-                TextField(controller: ex.nameController, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: const InputDecoration(border: InputBorder.none, hintText: "Exercício"), inputFormatters: [LengthLimitingTextInputFormatter(19)], onChanged: (v) => _saveState(idx)),
-                const SizedBox(height: 8), Row(mainAxisAlignment: MainAxisAlignment.center, children: [IconButton(icon: const Icon(Icons.remove_circle_outline, size: 24, color: Colors.grey), onPressed: () { setState(() => ex.updateSeriesCount(ex.seriesCompleted.length - 1)); _saveState(idx); }, tooltip: 'Diminuir séries'), Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)), child: Text('Séries: ${ex.seriesCompleted.length}', style: const TextStyle(fontWeight: FontWeight.bold))), IconButton(icon: const Icon(Icons.add_circle_outline, size: 24, color: Colors.blue), onPressed: () { setState(() => ex.updateSeriesCount(ex.seriesCompleted.length + 1)); _saveState(idx); }, tooltip: 'Aumentar séries')]),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  IconButton(icon: const Icon(Icons.trending_up, color: Colors.green, size: 24), onPressed: () => _showHistoryChart(ex.nameController.text, idx), tooltip: 'Evolução e Performance'),
-                  IconButton(icon: const Icon(Icons.ondemand_video, color: Colors.blueGrey, size: 24), onPressed: () => _launchYouTubeSearch(ex.nameController.text), tooltip: 'Tutorial YouTube'),
-                  IconButton(icon: const Icon(Icons.info_outline, color: Color(0xFF0D47A1), size: 24), onPressed: () => _launchBenefitsSearch(ex.nameController.text), tooltip: 'Benefícios e IA (Google)'),
-                  IconButton(icon: Icon(ex.notesController.text.isNotEmpty ? Icons.assignment : Icons.assignment_outlined, color: Colors.amber, size: 24), onPressed: () => _showNotesDialog(idx), tooltip: 'Ver/Editar minhas notas'),
-                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 24), onPressed: () => _requestRemove(idx), tooltip: 'Excluir exercício'),
-                ]),
-                const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(ex.seriesCompleted.length, (sIdx) => Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: SizedBox(height: 24, width: 24, child: Checkbox(value: ex.seriesCompleted[sIdx], activeColor: Colors.green, onChanged: (v) { setState(() { ex.seriesCompleted[sIdx] = v ?? false; if (v == true) { _lastMarkedIndex = idx; if (ex.startTime == null) ex.startTime = DateTime.now(); if (ex.seriesCompleted.every((c) => c)) ex.endTime = DateTime.now(); } }); _saveState(idx); }))))),
-                const Divider(height: 24), ...List.generate(ex.repsControllers.length, (sIdx) => Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [CircleAvatar(radius: 10, child: Text('${sIdx + 1}', style: const TextStyle(fontSize: 10))), const SizedBox(width: 12), const Text('Rep:'), SizedBox(width: 35, child: TextField(controller: ex.repsControllers[sIdx], textAlign: TextAlign.center, decoration: const InputDecoration(isDense: true), keyboardType: TextInputType.number, onChanged: (v) => _saveState(idx))), const SizedBox(width: 16), const Text('Peso:'), SizedBox(width: 55, child: TextField(controller: ex.weightControllers[sIdx], textAlign: TextAlign.center, decoration: const InputDecoration(isDense: true, suffixText: 'kg'), keyboardType: TextInputType.number, onChanged: (v) { _db.insertHistory(ex.nameController.text, double.tryParse(v) ?? 0); _saveState(idx); }))])))
-              ])));
+              return Card(
+                key: ValueKey('ex_$idx'), margin: const EdgeInsets.symmetric(vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: ex.seriesCompleted.every((c) => c) ? Colors.green : Colors.grey.shade400)),
+                child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+                  TextField(controller: ex.nameController, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18), decoration: const InputDecoration(border: InputBorder.none, hintText: "Exercício"), inputFormatters: [LengthLimitingTextInputFormatter(19)], onChanged: (v) => _saveState(idx)),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    IconButton(icon: const Icon(Icons.remove_circle_outline, size: 24, color: Colors.grey), onPressed: () { setState(() => ex.updateSeriesCount(ex.seriesCompleted.length - 1)); _saveState(idx); }),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)), child: Text('Séries: ${ex.seriesCompleted.length}', style: const TextStyle(fontWeight: FontWeight.bold))),
+                    IconButton(icon: const Icon(Icons.add_circle_outline, size: 24, color: Colors.blue), onPressed: () { setState(() => ex.updateSeriesCount(ex.seriesCompleted.length + 1)); _saveState(idx); }),
+                  ]),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    IconButton(icon: const Icon(Icons.trending_up, color: Colors.green, size: 24), onPressed: () => _showHistoryChart(ex.nameController.text, idx), tooltip: 'Evolução'),
+                    IconButton(icon: const Icon(Icons.ondemand_video, color: Colors.blueGrey, size: 24), onPressed: () => launchUrl(Uri.parse('https://www.youtube.com/results?search_query=${ex.nameController.text}'), mode: LaunchMode.externalApplication)),
+                    IconButton(icon: const Icon(Icons.info_outline, color: Color(0xFF0D47A1), size: 24), onPressed: () => _launchBenefitsSearch(ex.nameController.text)),
+                    IconButton(icon: Icon(ex.notesController.text.isNotEmpty ? Icons.assignment : Icons.assignment_outlined, color: Colors.amber, size: 24), onPressed: () => _showNotesDialog(idx)),
+                    IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 24), onPressed: () => _requestRemove(idx)),
+                  ]),
+                  const SizedBox(height: 12),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(ex.seriesCompleted.length, (sIdx) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: SizedBox(height: 24, width: 24, child: Checkbox(
+                      value: ex.seriesCompleted[sIdx], activeColor: Colors.green, 
+                      onChanged: (v) { 
+                        setState(() { 
+                          ex.seriesCompleted[sIdx] = v ?? false; 
+                          if (v == true) { if (ex.startTime == null) ex.startTime = DateTime.now(); if (ex.seriesCompleted.every((c) => c)) ex.endTime = DateTime.now(); }
+                        }); 
+                        _saveState(idx); 
+                      }
+                    )),
+                  ))),
+                  const Divider(height: 24),
+                  ...List.generate(ex.repsControllers.length, (idx2) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      CircleAvatar(radius: 10, child: Text('${idx2 + 1}', style: const TextStyle(fontSize: 10))),
+                      const SizedBox(width: 12),
+                      const Text('Rep:'),
+                      SizedBox(width: 35, child: TextField(controller: ex.repsControllers[idx2], textAlign: TextAlign.center, decoration: const InputDecoration(isDense: true), keyboardType: TextInputType.number, onChanged: (v) => _saveState(idx))),
+                      const SizedBox(width: 16),
+                      const Text('Peso:'),
+                      SizedBox(width: 55, child: TextField(controller: ex.weightControllers[idx2], textAlign: TextAlign.center, decoration: const InputDecoration(isDense: true, suffixText: 'kg'), keyboardType: TextInputType.number, onChanged: (v) { _db.insertHistory(ex.nameController.text, double.tryParse(v) ?? 0); _saveState(idx); })),
+                    ]),
+                  )),
+                ])),
+              );
             }),
             const SizedBox(height: 32), const Text('Descanso', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), const SizedBox(height: 20),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(icon: const Icon(Icons.remove_circle_outline, size: 32), onPressed: () => _timerService.adjustTimer(-10)),
               const SizedBox(width: 16),
               Stack(alignment: Alignment.center, children: [
-                Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.withValues(alpha: 0.3), width: 4)), child: SizedBox(height: 110, width: 110, child: CircularProgressIndicator(value: _timerService.initialSeconds > 0 ? _timerService.remainingSeconds / _timerService.initialSeconds : 0, strokeWidth: 8, color: _timerService.remainingSeconds <= 10 && _timerService.remainingSeconds > 0 ? Colors.red : theme.colorScheme.primary))),
-                GestureDetector(onTap: () => _timerService.togglePause(), onLongPress: () => _timerService.resetTimer(), child: ScaleTransition(scale: _pulseAnimation, child: Text('${(_timerService.remainingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_timerService.remainingSeconds % 60).toString().padLeft(2, '0')}', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _timerService.timerFinished ? Colors.green : ((_timerService.remainingSeconds > 0 && _timerService.remainingSeconds <= 10) ? Colors.red : theme.textTheme.bodyLarge?.color))))),
+                Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.withOpacity(0.3), width: 4)), child: SizedBox(height: 110, width: 110, child: CircularProgressIndicator(value: _timerService.initialSeconds > 0 ? _timerService.remainingSeconds / _timerService.initialSeconds : 0, strokeWidth: 8, color: _timerService.remainingSeconds <= 10 && _timerService.remainingSeconds > 0 ? Colors.red : theme.colorScheme.primary))),
+                GestureDetector(onTap: () => _timerService.togglePause(), onLongPress: () => _timerService.resetTimer(), child: ScaleTransition(scale: _pulseAnimation, child: Text('${(_timerService.remainingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_timerService.remainingSeconds % 60).toString().padLeft(2, '0')}', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _timerService.timerFinished ? (theme.brightness == Brightness.dark ? Colors.white : Colors.black) : ((_timerService.remainingSeconds > 0 && _timerService.remainingSeconds <= 10) ? Colors.red : theme.textTheme.bodyLarge?.color))))),
               ]),
               const SizedBox(width: 16), IconButton(icon: const Icon(Icons.add_circle_outline, size: 32), onPressed: () => _timerService.adjustTimer(10)),
             ]),
