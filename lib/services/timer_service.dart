@@ -67,7 +67,14 @@ class TimerService extends ChangeNotifier {
   }
 
   void _startAlert() {
-    FlutterRingtonePlayer().playAlarm(looping: true, asAlarm: true);
+    // Altera para um bipe curto (Notification) em looping
+    FlutterRingtonePlayer().play(
+      android: AndroidSounds.notification,
+      ios: IosSounds.glass,
+      looping: true,
+      asAlarm: true,
+    );
+
     _vibrationTimer?.cancel();
     _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
       Vibration.vibrate(pattern: [500, 1000]);
