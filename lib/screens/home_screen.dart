@@ -36,51 +36,55 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     return email.split('@')[0].split('.')[0].split('_')[0].toUpperCase();
   }
 
-  // SNACKBAR DE LOGOUT MELHORADA
+  // DIÁLOGO DE LOGOUT MODERNO COM CANCELAR
   void _confirmLogout() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        backgroundColor: Colors.red.shade800,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(20),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Row(
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
           children: [
-            const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 28),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Deseja sair do app?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-            ),
+            Icon(Icons.exit_to_app_rounded, color: Colors.redAccent, size: 28),
+            SizedBox(width: 12),
+            Text('Sair do App', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ],
         ),
-        action: SnackBarAction(
-          label: 'SAIR AGORA',
-          textColor: Colors.yellowAccent,
-          onPressed: () async {
-            try {
-              await GoogleSignIn().signOut();
-              await _auth.signOut();
-              if (mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  (route) => false,
-                );
-              }
-            } catch (e) {
-              debugPrint("Erro ao sair: $e");
-            }
-          },
+        content: const Text(
+          'Deseja realmente encerrar sua sessão atual?',
+          style: TextStyle(color: Colors.white70, fontSize: 16),
         ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          // BOTÃO CANCELAR
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('CANCELAR', style: TextStyle(color: Colors.blue.shade300, fontWeight: FontWeight.bold)),
+          ),
+          // BOTÃO SAIR (Destaque)
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              try {
+                await GoogleSignIn().signOut();
+                await _auth.signOut();
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                debugPrint("Erro ao sair: $e");
+              }
+            },
+            child: const Text('SAIR AGORA', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }
