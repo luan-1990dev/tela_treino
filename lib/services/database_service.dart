@@ -14,7 +14,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'workout_history.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Aumentado para migração
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE exercise_history (
@@ -24,6 +24,28 @@ class DatabaseService {
             date TEXT
           )
         ''');
+        await db.execute('''
+          CREATE TABLE workout_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            exercise_name TEXT,
+            duration_seconds INTEGER,
+            total_workout_time_seconds INTEGER
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE workout_sessions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              date TEXT,
+              exercise_name TEXT,
+              duration_seconds INTEGER,
+              total_workout_time_seconds INTEGER
+            )
+          ''');
+        }
       },
     );
   }
@@ -35,6 +57,25 @@ class DatabaseService {
       'weight': weight,
       'date': DateTime.now().toIso8601String(),
     });
+  }
+
+  Future<void> saveSessionData({
+    required String exerciseName,
+    required int durationSeconds,
+    required int totalSeconds,
+  }) async {
+    final db = await database;
+    await db.insert('workout_sessions', {
+      'date': DateTime.now().toIso8601String(),
+      'exercise_name': exerciseName,
+      'duration_seconds': durationSeconds,
+      'total_workout_time_seconds': totalSeconds,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getSessions() async {
+    final db = await database;
+    return await db.query('workout_sessions', orderBy: 'date DESC');
   }
 
   Future<List<Map<String, dynamic>>> getHistory(String name) async {

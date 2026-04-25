@@ -1,6 +1,39 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StorageService {
+  // CONFIGURAÇÃO DE SOM SELECIONADO
+  Future<void> saveSelectedSound(String soundName) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_sound', soundName);
+  }
+
+  Future<String> getSelectedSound() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('selected_sound') ?? 'Notification';
+  }
+
+  // CONFIGURAÇÃO DE SOM ATIVADO
+  Future<void> saveSoundEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('sound_enabled', enabled);
+  }
+
+  Future<bool> getSoundEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('sound_enabled') ?? true;
+  }
+
+  // CONFIGURAÇÃO DE VIBRAÇÃO ATIVADA
+  Future<void> saveVibrationEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('vibration_enabled', enabled);
+  }
+
+  Future<bool> getVibrationEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('vibration_enabled') ?? true;
+  }
+
   Future<void> saveExerciseNames(String key, List<String> names) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('workout_${key}_names', names);
@@ -21,7 +54,6 @@ class StorageService {
     return prefs.getString('workout_${key}_title');
   }
 
-  // PERSISTÊNCIA DE DATA PARA SNACKBARS
   Future<void> saveLastWelcomeDate(String date) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('last_welcome_date', date);

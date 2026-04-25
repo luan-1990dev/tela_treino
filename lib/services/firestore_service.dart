@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -10,7 +11,7 @@ class FirestoreService {
   // FORÇAR BACKUP COMPLETO
   Future<void> syncWorkoutToCloud({
     required String workoutKey,
-    required String workoutTitle, // Agora salva o título editável
+    required String workoutTitle,
     required List<String> names,
     required Map<int, List<bool>> seriesStates,
     required Map<int, List<String>> repsLists,
@@ -43,8 +44,11 @@ class FirestoreService {
           .collection('workouts')
           .doc(workoutKey)
           .set(workoutData, SetOptions(merge: true));
+    } on FirebaseException catch (e) {
+      debugPrint("Erro Firestore [${e.code}]: ${e.message}");
+      rethrow;
     } catch (e) {
-      print("Erro ao sincronizar Firestore: $e");
+      debugPrint("Erro genérico ao sincronizar: $e");
       rethrow;
     }
   }
@@ -52,11 +56,19 @@ class FirestoreService {
   // CARREGAR BACKUP
   Future<DocumentSnapshot?> getWorkoutFromCloud(String workoutKey) async {
     if (uid == null) return null;
-    return await _db
-        .collection('users')
-        .doc(uid)
-        .collection('workouts')
-        .doc(workoutKey)
-        .get();
+    try {
+      return await _db
+          .collection('users')
+          .doc(uid)
+          .collection('workouts')
+          .doc(workoutKey)
+          .get();
+    } on FirebaseException catch (e) {
+      debugPrint("Erro Firestore ao carregar [${e.code}]: ${e.message}");
+      return null;
+    } catch (e) {
+      debugPrint("Erro genérico ao carregar backup: $e");
+      return null;
+    }
   }
 }

@@ -2,15 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'storage_service.dart';
 
 class TimerService extends ChangeNotifier {
   static final TimerService _instance = TimerService._internal();
   factory TimerService() => _instance;
   TimerService._internal();
 
+  final StorageService _storage = StorageService();
   Timer? _timer;
   Timer? _vibrationTimer;
-  
+
   int _remainingSeconds = 0;
   int _initialSeconds = 0;
   bool _timerFinished = false;
@@ -28,7 +30,7 @@ class TimerService extends ChangeNotifier {
     _initialSeconds = seconds;
     _timerFinished = false;
     _isPaused = false;
-    
+
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_isPaused) return;
       if (_remainingSeconds > 0) {
@@ -37,7 +39,7 @@ class TimerService extends ChangeNotifier {
       } else {
         _timer?.cancel();
         _timerFinished = true;
-        _startAlert(); 
+        _startAlert();
         notifyListeners();
       }
     });
@@ -66,23 +68,45 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _startAlert() {
-    // Altera para um bipe curto (Notification) em looping
-    FlutterRingtonePlayer().play(
-      android: AndroidSounds.notification,
-      ios: IosSounds.glass,
-      looping: true,
-      asAlarm: true,
-    );
+  Future<void> _startAlert() async {
+    final bool soundEnabled = await _storage.getSoundEnabled();
+    final bool vibrationEnabled = await _storage.getVibrationEnabled();
+    final String soundType = await _storage.getSelectedSound();
 
-    _vibrationTimer?.cancel();
-    _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
-      Vibration.vibrate(pattern: [500, 1000]);
-    });
+    if (soundEnabled) {
+      if (soundType == 'Alarm') {
+        FlutterRingtonePlayer().playAlarm(looping: true, asAlarm: false);
+      } else if (soundType == 'Ringtone') {
+        FlutterRingtonePlayer().playRingtone(looping: true, asAlarm: false);
+      } else if (soundType == 'Glass') {
+        FlutterRingtonePlayer().play(
+          android: AndroidSounds.notification,
+          ios: IosSounds.glass,
+          looping: true,
+          asAlarm: false,
+        );
+      } else {
+        // Padrão: Notification
+        FlutterRingtonePlayer().play(
+          android: AndroidSounds.notification,
+          ios: IosSounds.triTone,
+          looping: true,
+          asAlarm: false,
+        );
+      }
+    }
+
+    if (vibrationEnabled) {
+      _vibrationTimer?.cancel();
+      _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
+        Vibration.vibrate(pattern: [500, 1000]);
+      });
+    }
   }
 
   void stopVibration() {
     _vibrationTimer?.cancel();
+    _vibrationTimer = null;
     Vibration.cancel();
     FlutterRingtonePlayer().stop();
   }
