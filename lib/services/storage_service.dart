@@ -107,7 +107,7 @@ class StorageService {
 
   Future<List<String>?> getWeightsList(String key, int idx) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('workout_${key}_ex_${idx}_weights');
+    return prefs.getStringList('workout_${key}_weights');
   }
 
   Future<void> saveSeriesCount(String key, int idx, int c) async {

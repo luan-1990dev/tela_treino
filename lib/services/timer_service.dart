@@ -1,15 +1,17 @@
 import 'dart:async';
-import 'package:flutter/material.dart';import 'package:vibration/vibration.dart';
+import 'package:flutter/material.dart';
+import 'package:vibration/vibration.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:audioplayers/audioplayers.dart'; 
 import 'storage_service.dart';
 
 class TimerService extends ChangeNotifier {
   static final TimerService _instance = TimerService._internal();
   factory TimerService() => _instance;
 
-  // O construtor agora carrega as configurações do disco automaticamente
   TimerService._internal() {
     _loadSettings();
+    _configureAudioDucking();
   }
 
   final StorageService _storage = StorageService();
@@ -29,18 +31,23 @@ class TimerService extends ChangeNotifier {
   int get initialSeconds => _initialSeconds;
   bool get timerFinished => _timerFinished;
   bool get isPaused => _isPaused;
-
   bool get useSound => _useSound;
   bool get useVibration => _useVibration;
   String get selectedSoundType => _selectedSoundType;
 
-  String get timerText {
-    final m = _remainingSeconds ~/ 60;
-    final s = _remainingSeconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  void _configureAudioDucking() {
+    AudioPlayer.global.setAudioContext(AudioContext(
+      android: const AudioContextAndroid(
+        contentType: AndroidContentType.sonification,
+        usageType: AndroidUsageType.notification,
+        audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+      ),
+      iOS: const AudioContextIOS(
+        category: AVAudioSessionCategory.ambient,
+        options: [AVAudioSessionOptions.duckOthers],
+      ),
+    ));
   }
-
-  // --- NOVOS MÉTODOS (CORRIGEM OS ERROS DE COMPILAÇÃO) ---
 
   void setSoundEnabled(bool value) {
     _useSound = value;
@@ -59,8 +66,6 @@ class TimerService extends ChangeNotifier {
     _storage.saveSelectedSound(value);
     notifyListeners();
   }
-
-  // --- FIM DOS NOVOS MÉTODOS ---
 
   Future<void> _loadSettings() async {
     _useSound = await _storage.getSoundEnabled();
@@ -115,26 +120,15 @@ class TimerService extends ChangeNotifier {
   }
 
   void _startAlert() {
-    // Agora usa as variáveis da classe que são atualizadas em tempo real
     if (_useSound) {
       if (_selectedSoundType == 'Alarm') {
         FlutterRingtonePlayer().playAlarm(looping: true, asAlarm: false);
       } else if (_selectedSoundType == 'Ringtone') {
         FlutterRingtonePlayer().playRingtone(looping: true, asAlarm: false);
       } else if (_selectedSoundType == 'Glass') {
-        FlutterRingtonePlayer().play(
-          android: AndroidSounds.notification,
-          ios: IosSounds.glass,
-          looping: true,
-          asAlarm: false,
-        );
+        FlutterRingtonePlayer().play(android: AndroidSounds.notification, ios: IosSounds.glass, looping: true, asAlarm: false);
       } else {
-        FlutterRingtonePlayer().play(
-          android: AndroidSounds.notification,
-          ios: IosSounds.triTone,
-          looping: true,
-          asAlarm: false,
-        );
+        FlutterRingtonePlayer().play(android: AndroidSounds.notification, ios: IosSounds.triTone, looping: true, asAlarm: false);
       }
     }
 
