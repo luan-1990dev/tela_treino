@@ -35,6 +35,8 @@ class TimerService extends ChangeNotifier {
   bool get useVibration => _useVibration;
   String get selectedSoundType => _selectedSoundType;
 
+  String get timerText => '${(_remainingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_remainingSeconds % 60).toString().padLeft(2, '0')}';
+
   void _configureAudioDucking() {
     AudioPlayer.global.setAudioContext(AudioContext(
       android: const AudioContextAndroid(
@@ -121,15 +123,14 @@ class TimerService extends ChangeNotifier {
 
   void _startAlert() {
     if (_useSound) {
-      if (_selectedSoundType == 'Alarm') {
-        FlutterRingtonePlayer().playAlarm(looping: true, asAlarm: false);
-      } else if (_selectedSoundType == 'Ringtone') {
-        FlutterRingtonePlayer().playRingtone(looping: true, asAlarm: false);
-      } else if (_selectedSoundType == 'Glass') {
-        FlutterRingtonePlayer().play(android: AndroidSounds.notification, ios: IosSounds.glass, looping: true, asAlarm: false);
-      } else {
-        FlutterRingtonePlayer().play(android: AndroidSounds.notification, ios: IosSounds.triTone, looping: true, asAlarm: false);
-      }
+      // looping: false e asAlarm: false garantem que o Ducking funcione
+      FlutterRingtonePlayer().play(
+        android: _selectedSoundType == 'Alarm' ? AndroidSounds.alarm : AndroidSounds.notification,
+        ios: _selectedSoundType == 'Alarm' ? IosSounds.alarm : IosSounds.triTone,
+        looping: true,
+        asAlarm: false, // TRATA COMO NOTIFICAÇÃO (NÃO PARA A MÚSICA)
+        volume: 0.5,
+      );
     }
 
     if (_useVibration) {
