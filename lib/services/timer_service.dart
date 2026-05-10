@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
-import 'package:audioplayers/audioplayers.dart'; 
+import 'package:audioplayers/audioplayers.dart';
 import 'storage_service.dart';
 
 class TimerService extends ChangeNotifier {
@@ -15,6 +15,7 @@ class TimerService extends ChangeNotifier {
   }
 
   final StorageService _storage = StorageService();
+  final AudioPlayer _audioPlayer = AudioPlayer();
   Timer? _timer;
   Timer? _vibrationTimer;
 
@@ -26,6 +27,7 @@ class TimerService extends ChangeNotifier {
   bool _useSound = true;
   bool _useVibration = true;
   String _selectedSoundType = 'Notification';
+  String? _customSoundPath;
 
   int get remainingSeconds => _remainingSeconds;
   int get initialSeconds => _initialSeconds;
@@ -34,6 +36,7 @@ class TimerService extends ChangeNotifier {
   bool get useSound => _useSound;
   bool get useVibration => _useVibration;
   String get selectedSoundType => _selectedSoundType;
+  String? get customSoundPath => _customSoundPath;
 
   String get timerText => '${(_remainingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_remainingSeconds % 60).toString().padLeft(2, '0')}';
 
@@ -42,11 +45,14 @@ class TimerService extends ChangeNotifier {
       android: const AudioContextAndroid(
         contentType: AndroidContentType.sonification,
         usageType: AndroidUsageType.notification,
+        // gainTransientMayDuck: O segredo para baixar a música e não pará-la
         audioFocus: AndroidAudioFocus.gainTransientMayDuck,
       ),
       iOS: const AudioContextIOS(
         category: AVAudioSessionCategory.ambient,
-        options: [AVAudioSessionOptions.duckOthers],
+        options: [
+          AVAudioSessionOptions.duckOthers, // Abaixa o volume dos outros apps
+        ],
       ),
     ));
   }
@@ -69,10 +75,19 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setCustomSound(String path) {
+    _customSoundPath = path;
+    _selectedSoundType = 'Custom';
+    _storage.saveSelectedSound('Custom');
+    _storage.saveCustomSoundPath(path);
+    notifyListeners();
+  }
+
   Future<void> _loadSettings() async {
     _useSound = await _storage.getSoundEnabled();
     _useVibration = await _storage.getVibrationEnabled();
     _selectedSoundType = await _storage.getSelectedSound();
+    _customSoundPath = await _storage.getCustomSoundPath();
     notifyListeners();
   }
 
@@ -99,18 +114,6 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void adjustTimer(int delta) {
-    _remainingSeconds = (_remainingSeconds + delta).clamp(0, 999);
-    if (_initialSeconds < _remainingSeconds) _initialSeconds = _remainingSeconds;
-    if ((_timer == null || !_timer!.isActive) && _remainingSeconds > 0) startTimer(_remainingSeconds);
-    notifyListeners();
-  }
-
-  void togglePause() {
-    _isPaused = !_isPaused;
-    notifyListeners();
-  }
-
   void resetTimer() {
     stopVibration();
     _timer?.cancel();
@@ -121,30 +124,79 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _startAlert() {
-    if (_useSound) {
-      // looping: false e asAlarm: false garantem que o Ducking funcione
-      FlutterRingtonePlayer().play(
-        android: _selectedSoundType == 'Alarm' ? AndroidSounds.alarm : AndroidSounds.notification,
-        ios: _selectedSoundType == 'Alarm' ? IosSounds.alarm : IosSounds.triTone,
-        looping: true,
-        asAlarm: false, // TRATA COMO NOTIFICAÇÃO (NÃO PARA A MÚSICA)
-        volume: 0.5,
-      );
+  void adjustTimer(int delta) {
+    _remainingSeconds = (_remainingSeconds + delta).clamp(0, 999);
+    if (_remainingSeconds > _initialSeconds) {
+      _initialSeconds = _remainingSeconds;
     }
 
-    if (_useVibration) {
-      _vibrationTimer?.cancel();
-      _vibrationTimer = Timer.periodic(const Duration(seconds: 2), (t) {
-        Vibration.vibrate(pattern: [500, 1000]);
-      });
+    if (_remainingSeconds > 0) {
+      if (_timerFinished) {
+        _timerFinished = false;
+        stopVibration();
+      }
+      if (_timer == null || !_timer!.isActive) {
+        startTimer(_remainingSeconds);
+      }
+    } else {
+      resetTimer();
     }
+    notifyListeners();
   }
+
+  void togglePause() {
+    _isPaused = !_isPaused;
+    notifyListeners();
+  }
+  void _startAlert() async {
+    if (_useSound) {
+      if (_selectedSoundType == 'Custom' && _customSoundPath != null) {
+        _audioPlayer.play(DeviceFileSource(_customSoundPath!));
+      } else {
+        AndroidSound androidSound;
+        IosSound iosSound;
+
+        switch (_selectedSoundType) {
+          case 'Alarm':
+            androidSound = AndroidSounds.alarm;
+            iosSound = IosSounds.alarm;
+            break;
+          case 'Glass':
+            androidSound = AndroidSounds.notification;
+            iosSound = IosSounds.glass;
+            break;
+          case 'Ringtone':
+            androidSound = AndroidSounds.ringtone;
+            iosSound = IosSounds.electronic;
+            break;
+          default: // 'Notification' ou qualquer outro
+            androidSound = AndroidSounds.notification;
+            iosSound = IosSounds.triTone;
+        }
+
+        FlutterRingtonePlayer().play(
+          android: androidSound,
+          ios: iosSound,
+          looping: false,
+          asAlarm: false,
+          volume: 0.8,
+        );
+      }
+    }
+    if (_useVibration) {
+      Vibration.vibrate(pattern: [500, 500], repeat: 0);
+      }
+    }
 
   void stopVibration() {
     _vibrationTimer?.cancel();
     _vibrationTimer = null;
     Vibration.cancel();
     FlutterRingtonePlayer().stop();
+    _audioPlayer.stop();
+
+    _timerFinished = false;
+    notifyListeners();
   }
+
 }

@@ -22,6 +22,15 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('sound_enabled') ?? true;
   }
+  Future<void> saveCustomSoundPath(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('custom_sound_path', path);
+  }
+
+  Future<String?> getCustomSoundPath() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('custom_sound_path');
+  }
 
   // CONFIGURAÇÃO DE VIBRAÇÃO ATIVADA
   Future<void> saveVibrationEnabled(bool enabled) async {
