@@ -2,7 +2,7 @@ name: tela_treino
 description: "Tela de apoio a treino profissional"
 publish_to: 'none'
 
-version: 2.0.0+18
+version: 2.0.0+19
 
 environment:
   sdk: '>=3.11.4 <4.0.0'
@@ -26,11 +26,12 @@ dependencies:
   http: ^1.2.1
   url_launcher: ^6.3.0
   file_picker: ^8.0.7
+  intl: ^0.19.0
 
   # Gráficos e Sons
   fl_chart: ^0.66.0
-  flutter_ringtone_player: ^4.0.0+4
   audioplayers: ^5.2.1
+  flutter_ringtone_player: ^4.0.0+4
 
 dev_dependencies:
   flutter_test:

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'storage_service.dart';
 
 class TimerService extends ChangeNotifier {
@@ -29,6 +29,7 @@ class TimerService extends ChangeNotifier {
   String _selectedSoundType = 'Notification';
   String? _customSoundPath;
 
+  // Getters
   int get remainingSeconds => _remainingSeconds;
   int get initialSeconds => _initialSeconds;
   bool get timerFinished => _timerFinished;
@@ -45,13 +46,12 @@ class TimerService extends ChangeNotifier {
       android: const AudioContextAndroid(
         contentType: AndroidContentType.sonification,
         usageType: AndroidUsageType.notification,
-        // gainTransientMayDuck: O segredo para baixar a música e não pará-la
         audioFocus: AndroidAudioFocus.gainTransientMayDuck,
       ),
       iOS: const AudioContextIOS(
         category: AVAudioSessionCategory.ambient,
         options: [
-          AVAudioSessionOptions.duckOthers, // Abaixa o volume dos outros apps
+          AVAudioSessionOptions.duckOthers,
         ],
       ),
     ));
@@ -148,10 +148,12 @@ class TimerService extends ChangeNotifier {
     _isPaused = !_isPaused;
     notifyListeners();
   }
+
   void _startAlert() async {
     if (_useSound) {
       if (_selectedSoundType == 'Custom' && _customSoundPath != null) {
-        _audioPlayer.play(DeviceFileSource(_customSoundPath!));
+        // Toca o som do dispositivo via URI ou caminho de arquivo
+        _audioPlayer.play(UrlSource(_customSoundPath!));
       } else {
         AndroidSound androidSound;
         IosSound iosSound;
@@ -169,7 +171,7 @@ class TimerService extends ChangeNotifier {
             androidSound = AndroidSounds.ringtone;
             iosSound = IosSounds.electronic;
             break;
-          default: // 'Notification' ou qualquer outro
+          default:
             androidSound = AndroidSounds.notification;
             iosSound = IosSounds.triTone;
         }
@@ -183,14 +185,15 @@ class TimerService extends ChangeNotifier {
         );
       }
     }
+
     if (_useVibration) {
+      // Vibração constante: 500ms vibrando, 500ms parado. O repeat: 0 faz ser infinito.
       Vibration.vibrate(pattern: [500, 500], repeat: 0);
-      }
     }
+  }
 
   void stopVibration() {
-    _vibrationTimer?.cancel();
-    _vibrationTimer = null;
+    _timer?.cancel();
     Vibration.cancel();
     FlutterRingtonePlayer().stop();
     _audioPlayer.stop();
@@ -198,5 +201,4 @@ class TimerService extends ChangeNotifier {
     _timerFinished = false;
     notifyListeners();
   }
-
 }
