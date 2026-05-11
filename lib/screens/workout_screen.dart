@@ -14,7 +14,7 @@ import '../services/storage_service.dart';
 import '../services/database_service.dart';
 import '../services/firestore_service.dart';
 import '../services/timer_service.dart';
-import 'cardio_screen.dart'; // Certifique-se de que este arquivo existe
+import 'cardio_screen.dart';
 
 class WorkoutScreen extends StatefulWidget {
   final String workoutKey;
@@ -96,8 +96,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     });
   }
 
-  void _stopInactivityMonitor() => _inactivityTimer?.cancel();
-
   void _showInactivitySnackBar() {
     final screenHeight = MediaQuery.of(context).size.height;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -106,11 +104,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       margin: EdgeInsets.only(bottom: screenHeight / 2 - 40, left: 30, right: 30),
-      content: const Text(
-        "Não desista! Todo esforço vale a pena. 💪",
-        textAlign: TextAlign.center,
-        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
-      ),
+      content: const Text("Não desista! Todo esforço vale a pena. 💪", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
     ));
   }
 
@@ -134,7 +128,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   void _scrollToPending() {
     _timerService.stopVibration();
-    _stopInactivityMonitor();
+    _inactivityTimer?.cancel();
     int targetIdx = _currentFocusIndex;
     if (targetIdx != -1 && targetIdx < _exercises.length) {
       double scrollPos = (targetIdx * 350.0) - (MediaQuery.of(context).size.height / 2) + 175.0;
@@ -147,6 +141,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       if (mounted) setState(() => _isLoading = true);
       final List<Exercise> loadedExercises = [];
       final user = FirebaseAuth.instance.currentUser;
+
       if (user != null) {
         final cloudSnapshot = await _firestore.getWorkoutFromCloud(widget.workoutKey);
         if (cloudSnapshot != null && cloudSnapshot.exists) {
@@ -154,34 +149,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
           final List<dynamic> exList = data['exercises'] ?? [];
           for (var item in exList) {
             final List<bool> completed = List<bool>.from(item['seriesCompleted'] ?? []);
-            loadedExercises.add(Exercise(
+            final ex = Exercise(
               name: item['name'] ?? '',
               seriesCount: completed.length,
               initialReps: List<String>.from(item['reps'] ?? []),
               initialWeights: List<String>.from(item['weights'] ?? []),
               initialNotes: item['notes'] ?? '',
-            )..seriesCompleted = completed);
+            )..seriesCompleted = completed;
+
+            // CARREGAR TEMPOS SALVOS
+            if (item['startTime'] != null) ex.startTime = (item['startTime'] as Timestamp).toDate();
+            if (item['endTime'] != null) ex.endTime = (item['endTime'] as Timestamp).toDate();
+
+            loadedExercises.add(ex);
           }
-          final savedTitle = data['workoutTitle'];
-          if (savedTitle != null) _titleController.text = savedTitle;
-        }
-      }
-      if (loadedExercises.isEmpty) {
-        List<String>? names = await _storage.getExerciseNames(widget.workoutKey);
-        if (names == null || names.isEmpty) names = ['Exercício 1', 'Exercício 2'];
-        for (int i = 0; i < names.length; i++) {
-          final savedCount = await _storage.getSeriesCount(widget.workoutKey, i) ?? 4;
-          final reps = await _storage.getRepsList(widget.workoutKey, i);
-          final weights = await _storage.getWeightsList(widget.workoutKey, i);
-          final notes = await _storage.getExerciseNotes(widget.workoutKey, i) ?? '';
-          final ex = Exercise(name: names[i], seriesCount: savedCount, initialReps: reps, initialWeights: weights, initialNotes: notes);
-          final series = await _storage.getSeriesState(widget.workoutKey, i);
-          if (series != null) { ex.seriesCompleted = List.from(series); ex.updateSeriesCount(savedCount); }
-          loadedExercises.add(ex);
+          if (data['workoutTitle'] != null) _titleController.text = data['workoutTitle'];
         }
       }
       if (mounted) setState(() { _exercises = loadedExercises; _isLoading = false; });
-    } catch (e) { if (mounted) setState(() { _isLoading = false; }); }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _autoSync() async {
@@ -197,6 +185,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
           'reps': e.repsControllers.map((c) => c.text).toList(),
           'weights': e.weightControllers.map((c) => c.text).toList(),
           'notes': e.notesController.text,
+          'startTime': e.startTime, // SALVAR TEMPO
+          'endTime': e.endTime,     // SALVAR TEMPO
         }).toList(),
       }, SetOptions(merge: true));
     } catch (e) { debugPrint('Erro auto-sync: $e'); }
@@ -204,71 +194,153 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   Future<void> _saveState(int index) async {
     if (index >= _exercises.length) return;
-    final ex = _exercises[index];
-    await _storage.saveWorkoutTitle(widget.workoutKey, _titleController.text);
-    await _storage.saveExerciseNames(widget.workoutKey, _exercises.map((e) => e.nameController.text).toList());
-    await _storage.saveSeriesState(widget.workoutKey, index, ex.seriesCompleted);
-    await _storage.saveRepsList(widget.workoutKey, index, ex.repsControllers.map((c) => c.text).toList());
-    await _storage.saveWeightsList(widget.workoutKey, index, ex.weightControllers.map((c) => c.text).toList());
-    await _storage.saveSeriesCount(widget.workoutKey, index, ex.seriesCompleted.length);
-    await _storage.saveExerciseNotes(widget.workoutKey, index, ex.notesController.text);
     _autoSync();
-    if (_exercises.every((e) => e.seriesCompleted.every((c) => c)) && _exercises.isNotEmpty) { _showWorkoutCompleteSnackBar(); }
+    if (_exercises.every((e) => e.seriesCompleted.every((c) => c)) && _exercises.isNotEmpty) {
+      _showWorkoutCompleteSnackBar();
+    }
+  }
+
+  // Calcula o volume total (tonelagem) do treino atual
+  double _calculateCurrentTotalVolume() {
+    double total = 0;
+    for (var ex in _exercises) {
+      for (int i = 0; i < ex.weightControllers.length; i++) {
+        double r = double.tryParse(ex.repsControllers[i].text) ?? 0;
+        double w = double.tryParse(ex.weightControllers[i].text) ?? 0;
+        total += (r * w);
+      }
+    }
+    return total;
+  }
+
+  // Busca no histórico o volume do treino anterior para comparação
+  Future<double> _calculatePreviousTotalVolume() async {
+    double totalPrev = 0;
+    for (var ex in _exercises) {
+      final history = await _db.getHistory(ex.nameController.text);
+      // Pega o peso do registro anterior e multiplica por uma média de reps (ex: 10)
+      // e pelo número de séries para ter uma estimativa comparável
+      if (history.length >= 2) {
+        double prevW = (history[history.length - 2]['weight'] as num).toDouble();
+        totalPrev += (prevW * 10 * ex.seriesCompleted.length);
+      } else if (history.isNotEmpty) {
+        double prevW = (history.first['weight'] as num).toDouble();
+        totalPrev += (prevW * 10 * ex.seriesCompleted.length);
+      }
+    }
+    return totalPrev;
   }
 
   void _showWorkoutCompleteSnackBar() async {
     if (!mounted) return;
     final screenHeight = MediaQuery.of(context).size.height;
+
+    // 1. Cálculo de Volume Atual
+    final currentVolume = _calculateCurrentTotalVolume();
+
+    // 2. Cálculo de Volume Anterior para a Evolução
+    final previousVolume = await _calculatePreviousTotalVolume();
+    final diff = currentVolume - previousVolume;
+
+    // 3. Cálculo de Tempo Total (Soma de todos os exercícios)
+    Duration totalDuration = Duration.zero;
+    for (var ex in _exercises) {
+      if (ex.startTime != null && ex.endTime != null) {
+        totalDuration += ex.endTime!.difference(ex.startTime!);
+      }
+    }
+
+    // Formatação das strings conforme solicitado
+    int m = totalDuration.inMinutes;
+    int s = totalDuration.inSeconds % 60;
+    String timeString = "${m}m ${s}s";
+
+    // Sinal de + ou - para a evolução
+    String evolutionSign = diff >= 0 ? "+" : "";
+
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 15), behavior: SnackBarBehavior.floating,
-      backgroundColor: const Color(0xFF0D47A1), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      margin: EdgeInsets.only(bottom: screenHeight / 2 - 100, left: 20, right: 20),
-      content: const Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('🎉', style: TextStyle(fontSize: 40)),
-        Text('Treino concluído!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
-        Text('Parabéns pela dedicação! 💪', style: TextStyle(fontSize: 14, color: Colors.white70)),
-      ]),
+      duration: const Duration(seconds: 15),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF0D47A1), // Azul Royal
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 120, // Centralizado na tela
+          left: 20,
+          right: 20
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('😁', style: TextStyle(fontSize: 48)),
+          const SizedBox(height: 12),
+          const Text(
+            'Treino concluído!',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+          ),
+          const SizedBox(height: 10),
+
+          // Linha de Tempo
+          Text(
+            '⏱ Tempo: $timeString',
+            style: const TextStyle(fontSize: 15, color: Colors.white),
+          ),
+
+          // Linha de Volume Total
+          Text(
+            '🏋️ Total: ${currentVolume.toStringAsFixed(0)} kg',
+            style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+
+          // Linha de Evolução
+          Text(
+            '📈 $evolutionSign${diff.toStringAsFixed(0)} kg em relação ao último treino',
+            style: const TextStyle(
+                fontSize: 14,
+                color: Colors.greenAccent, // Destaque para a evolução
+                fontWeight: FontWeight.w500
+            ),
+          ),
+
+          const SizedBox(height: 16),
+          const Text(
+            'Parabéns pela evolução! 💪',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Colors.white70),
+          ),
+        ],
+      ),
     ));
-    if (await Vibration.hasVibrator() ?? false) Vibration.vibrate(duration: 400);
+
+    // Vibração de feedback
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 400);
+    }
   }
 
+
   void _showAlarmSettings() {
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF1A1A1A),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Row(children: [Icon(Icons.my_library_music, color: Colors.deepPurple), SizedBox(width: 10), Text('Ajustes do Alarme', style: TextStyle(color: Colors.white, fontSize: 18))]),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(title: const Text('Som', style: TextStyle(color: Colors.white70)), value: _timerService.useSound, activeColor: Colors.blue, onChanged: (v) { setState(() => _timerService.setSoundEnabled(v)); setDialogState(() {}); }),
-              SwitchListTile(title: const Text('Vibração', style: TextStyle(color: Colors.white70)), value: _timerService.useVibration, activeColor: Colors.orange, onChanged: (v) { setState(() => _timerService.setVibrationEnabled(v)); setDialogState(() {}); }),
-              const Divider(color: Colors.white12),
-              ListTile(
-                leading: const Icon(Icons.phonelink_setup_rounded, color: Colors.greenAccent),
-                title: const Text('Som do Dispositivo', style: TextStyle(color: Colors.white, fontSize: 14)),
-                onTap: () => _pickCustomSound(setDialogState),
-              ),
-            ],
-          ),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('FECHAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))],
-        ),
-      ),
-    );
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      backgroundColor: const Color(0xFF1A1A1A), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Row(children: [Icon(Icons.my_library_music, color: Colors.deepPurple, size: 32), SizedBox(width: 10), Text('Ajustes do Alarme', style: TextStyle(color: Colors.white, fontSize: 18))]),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        SwitchListTile(title: const Text('Som', style: TextStyle(color: Colors.white70)), value: _timerService.useSound, activeColor: Colors.blue, onChanged: (v) { setState(() => _timerService.setSoundEnabled(v)); setDialogState(() {}); }),
+        SwitchListTile(title: const Text('Vibração', style: TextStyle(color: Colors.white70)), value: _timerService.useVibration, activeColor: Colors.orange, onChanged: (v) { setState(() => _timerService.setVibrationEnabled(v)); setDialogState(() {}); }),
+        const Divider(color: Colors.white12),
+        ListTile(leading: const Icon(Icons.phonelink_setup_rounded, color: Colors.greenAccent), title: const Text('Som do Dispositivo', style: TextStyle(color: Colors.white, fontSize: 14)), onTap: () => _pickCustomSound(setDialogState)),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('FECHAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))],
+    )));
   }
 
   Future<void> _pickCustomSound(StateSetter setDialogState) async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.audio, allowMultiple: false);
       if (result != null && result.files.single.path != null) {
-        String path = result.files.single.path!;
-        setState(() { _timerService.setSelectedSound('Custom'); _timerService.setCustomSound(path); });
+        setState(() { _timerService.setSelectedSound('Custom'); _timerService.setCustomSound(result.files.single.path!); });
         setDialogState(() {});
       }
-    } catch (e) { debugPrint("Erro ao selecionar som: $e"); }
+    } catch (e) { debugPrint("Erro: $e"); }
   }
 
   void _addNew() {
@@ -291,7 +363,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     if (history.isEmpty) return;
     final ex = _exercises[index];
     String dur = '--:--';
-    if (ex.startTime != null && ex.endTime != null) { final diff = ex.endTime!.difference(ex.startTime!); dur = "${diff.inMinutes}m ${diff.inSeconds % 60}s"; }
+    if (ex.startTime != null && ex.endTime != null) {
+      final diff = ex.endTime!.difference(ex.startTime!);
+      dur = "${diff.inMinutes}m ${diff.inSeconds % 60}s";
+    }
     double fW = (history.first['weight'] as num).toDouble();
     double cW = double.tryParse(ex.weightControllers.isNotEmpty ? ex.weightControllers.first.text : '0') ?? fW;
     double proj = cW + ((cW - fW) > 0 ? (cW - fW) * 0.2 : 2.0);
@@ -365,7 +440,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                     OutlinedButton(onPressed: () => _timerService.resetTimer(), style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.grey), shape: const StadiumBorder()), child: const Text('Zerar')),
                   ]),
 
-                  // --- SEÇÃO DE CARDIO ADICIONADA AQUI ---
                   const SizedBox(height: 30),
                   const Divider(color: Colors.white12, indent: 40, endIndent: 40),
                   const SizedBox(height: 20),
@@ -376,14 +450,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                         Container(
                           padding: const EdgeInsets.all(15),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
+                            color: Colors.orange.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.lightGreenAccent, width: 2),
+                            border: Border.all(color: Colors.green, width: 2.5),
+                            // SOMBRA NO MODO CLARO
+                            boxShadow: theme.brightness == Brightness.light
+                                ? [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))]
+                                : [],
                           ),
-                          child: Icon(Icons.directions_run_rounded, size: 38, color: Colors.lightGreenAccent),
+                          child: const Icon(Icons.directions_run_rounded, size: 38, color: Colors.green),
                         ),
                         const SizedBox(height: 8),
-                        Text('CARDIO / ESTEIRA', style: TextStyle(color: Colors.lightGreenAccent, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
+                        Text('CARDIO', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2)),
                       ],
                     ),
                   ),
@@ -396,9 +474,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
             final bool isActive = idx == activeIdx;
             return Card(
               key: ValueKey('ex_$idx'),
-              margin: const EdgeInsets.symmetric(vertical: 8),
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               color: isActive ? Colors.blue.withValues(alpha: 0.08) : null,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: isActive ? Colors.deepOrange : (ex.seriesCompleted.every((c) => c) ? Colors.green : Colors.grey.shade400), width: isActive ? 2.5 : 1.0)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: isActive ? Colors.deepOrange : (ex.seriesCompleted.every((c) => c) ? Colors.green : Colors.grey.shade400),
+                  width: isActive ? 3.5 : 2.0, // BORDAS AUMENTADAS E PADRONIZADAS
+                ),
+              ),
               child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Column(mainAxisSize: MainAxisSize.min, children: [
@@ -423,7 +507,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
                   IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => setState(() { _exercises.removeAt(idx); _autoSync(); })),
                 ]),
                 const SizedBox(height: 12),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(ex.seriesCompleted.length, (sIdx) => Checkbox(value: ex.seriesCompleted[sIdx], activeColor: Colors.green, onChanged: (v) { setState(() { ex.seriesCompleted[sIdx] = v ?? false; if (v == true) { _lastMarkedIndex = idx; _manualActiveIndex = idx; _timerService.stopVibration(); if (ex.startTime == null) ex.startTime = DateTime.now(); if (ex.seriesCompleted.every((c) => c)) ex.endTime = DateTime.now(); } _stopInactivityMonitor(); }); _saveState(idx); }))),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(ex.seriesCompleted.length, (sIdx) => Checkbox(
+                    value: ex.seriesCompleted[sIdx],
+                    activeColor: Colors.green,
+                    onChanged: (v) {
+                      setState(() {
+                        ex.seriesCompleted[sIdx] = v ?? false;
+                        if (v == true) {
+                          _lastMarkedIndex = idx;
+                          _manualActiveIndex = idx;
+                          _timerService.stopVibration();
+
+                          // LÓGICA DE TEMPO: Só redefine startTime se for a primeira série marcada desta sessão
+                          bool isFirstMarked = ex.seriesCompleted.where((c) => c).length == 1;
+                          if (isFirstMarked) {
+                            ex.startTime = DateTime.now();
+                            ex.endTime = null; // Reseta o fim para a nova sessão
+                          }
+
+                          if (ex.seriesCompleted.every((c) => c)) ex.endTime = DateTime.now();
+                        }
+                      });
+                      _saveState(idx);
+                    }
+                ))),
                 const Divider(),
                 ...List.generate(ex.repsControllers.length, (idx2) => Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   const Text('Rep:'), SizedBox(width: 40, child: TextField(controller: ex.repsControllers[idx2], textAlign: TextAlign.center, keyboardType: TextInputType.number, onChanged: (v) => _saveState(idx))),

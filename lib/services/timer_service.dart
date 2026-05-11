@@ -12,17 +12,18 @@ class TimerService extends ChangeNotifier {
   TimerService._internal() {
     _loadSettings();
     _configureAudioDucking();
+    _restoreRunningTimer();
   }
 
   final StorageService _storage = StorageService();
   final AudioPlayer _audioPlayer = AudioPlayer();
   Timer? _timer;
-  Timer? _vibrationTimer;
 
   int _remainingSeconds = 0;
   int _initialSeconds = 0;
   bool _timerFinished = false;
   bool _isPaused = false;
+  DateTime? _targetEndTime;
 
   bool _useSound = true;
   bool _useVibration = true;
@@ -37,7 +38,6 @@ class TimerService extends ChangeNotifier {
   bool get useSound => _useSound;
   bool get useVibration => _useVibration;
   String get selectedSoundType => _selectedSoundType;
-  String? get customSoundPath => _customSoundPath;
 
   String get timerText => '${(_remainingSeconds ~/ 60).toString().padLeft(2, '0')}:${(_remainingSeconds % 60).toString().padLeft(2, '0')}';
 
@@ -50,37 +50,25 @@ class TimerService extends ChangeNotifier {
       ),
       iOS: const AudioContextIOS(
         category: AVAudioSessionCategory.ambient,
-        options: [
-          AVAudioSessionOptions.duckOthers,
-        ],
+        options: [AVAudioSessionOptions.duckOthers],
       ),
     ));
   }
 
-  void setSoundEnabled(bool value) {
-    _useSound = value;
-    _storage.saveSoundEnabled(value);
-    notifyListeners();
-  }
-
-  void setVibrationEnabled(bool value) {
-    _useVibration = value;
-    _storage.saveVibrationEnabled(value);
-    notifyListeners();
-  }
-
-  void setSelectedSound(String value) {
-    _selectedSoundType = value;
-    _storage.saveSelectedSound(value);
-    notifyListeners();
-  }
-
-  void setCustomSound(String path) {
-    _customSoundPath = path;
-    _selectedSoundType = 'Custom';
-    _storage.saveSelectedSound('Custom');
-    _storage.saveCustomSoundPath(path);
-    notifyListeners();
+  Future<void> _restoreRunningTimer() async {
+    final savedTarget = await _storage.getTimerTargetTime();
+    if (savedTarget != null) {
+      final now = DateTime.now();
+      if (savedTarget.isAfter(now)) {
+        _targetEndTime = savedTarget;
+        _initialSeconds = await _storage.getTimerInitialSeconds() ?? 60;
+        _timerFinished = false;
+        _isPaused = false;
+        _startCountdownLogic();
+      } else {
+        _storage.clearTimerData();
+      }
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -94,67 +82,86 @@ class TimerService extends ChangeNotifier {
   void startTimer(int seconds) {
     stopVibration();
     _timer?.cancel();
-    _remainingSeconds = seconds;
     _initialSeconds = seconds;
+    _remainingSeconds = seconds;
     _timerFinished = false;
     _isPaused = false;
+    _targetEndTime = DateTime.now().add(Duration(seconds: seconds));
+    _storage.saveTimerTargetTime(_targetEndTime!);
+    _storage.saveTimerInitialSeconds(seconds);
+    _startCountdownLogic();
+  }
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_isPaused) return;
-      if (_remainingSeconds > 0) {
-        _remainingSeconds--;
-        notifyListeners();
+  void _startCountdownLogic() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (t) {
+      if (_isPaused || _targetEndTime == null) return;
+      final now = DateTime.now();
+      final difference = _targetEndTime!.difference(now).inSeconds;
+      if (difference > 0) {
+        if (_remainingSeconds != difference) {
+          _remainingSeconds = difference;
+          notifyListeners();
+        }
       } else {
+        _remainingSeconds = 0;
         _timer?.cancel();
         _timerFinished = true;
+        _storage.clearTimerData();
         _startAlert();
         notifyListeners();
       }
     });
-    notifyListeners();
-  }
-
-  void resetTimer() {
-    stopVibration();
-    _timer?.cancel();
-    _remainingSeconds = 0;
-    _initialSeconds = 0;
-    _timerFinished = false;
-    _isPaused = false;
-    notifyListeners();
   }
 
   void adjustTimer(int delta) {
-    _remainingSeconds = (_remainingSeconds + delta).clamp(0, 999);
-    if (_remainingSeconds > _initialSeconds) {
-      _initialSeconds = _remainingSeconds;
+    if (_targetEndTime == null && !_timerFinished) {
+      startTimer((_remainingSeconds + delta).clamp(0, 999));
+      return;
     }
-
-    if (_remainingSeconds > 0) {
-      if (_timerFinished) {
-        _timerFinished = false;
-        stopVibration();
-      }
-      if (_timer == null || !_timer!.isActive) {
-        startTimer(_remainingSeconds);
-      }
-    } else {
+    if (_timerFinished) {
       resetTimer();
+      startTimer(delta.abs());
+      return;
     }
+    _targetEndTime = _targetEndTime?.add(Duration(seconds: delta));
+    _remainingSeconds = (_targetEndTime?.difference(DateTime.now()).inSeconds ?? 0).clamp(0, 999);
+    if (_remainingSeconds > _initialSeconds) _initialSeconds = _remainingSeconds;
+    _storage.saveTimerTargetTime(_targetEndTime!);
     notifyListeners();
   }
 
   void togglePause() {
-    _isPaused = !_isPaused;
+    if (_timerFinished || _targetEndTime == null) return;
+    if (_isPaused) {
+      _targetEndTime = DateTime.now().add(Duration(seconds: _remainingSeconds));
+      _storage.saveTimerTargetTime(_targetEndTime!);
+      _isPaused = false;
+    } else {
+      _isPaused = true;
+      _storage.clearTimerData();
+    }
+    notifyListeners();
+  }
+
+  void resetTimer() {
+    _timer?.cancel();
+    _targetEndTime = null;
+    _remainingSeconds = 0;
+    _initialSeconds = 0;
+    _timerFinished = false;
+    _isPaused = false;
+    _storage.clearTimerData();
+    stopVibration();
     notifyListeners();
   }
 
   void _startAlert() async {
     if (_useSound) {
       if (_selectedSoundType == 'Custom' && _customSoundPath != null) {
-        // Toca o som do dispositivo via URI ou caminho de arquivo
         _audioPlayer.play(UrlSource(_customSoundPath!));
       } else {
+        // CORREÇÃO: O tipo da variável é no SINGULAR
         AndroidSound androidSound;
         IosSound iosSound;
 
@@ -176,6 +183,7 @@ class TimerService extends ChangeNotifier {
             iosSound = IosSounds.triTone;
         }
 
+        // Chamada via instância
         FlutterRingtonePlayer().play(
           android: androidSound,
           ios: iosSound,
@@ -187,18 +195,21 @@ class TimerService extends ChangeNotifier {
     }
 
     if (_useVibration) {
-      // Vibração constante: 500ms vibrando, 500ms parado. O repeat: 0 faz ser infinito.
       Vibration.vibrate(pattern: [500, 500], repeat: 0);
     }
   }
 
   void stopVibration() {
-    _timer?.cancel();
     Vibration.cancel();
+    // Chamada via instância
     FlutterRingtonePlayer().stop();
     _audioPlayer.stop();
-
     _timerFinished = false;
     notifyListeners();
   }
+
+  void setSoundEnabled(bool v) { _useSound = v; _storage.saveSoundEnabled(v); notifyListeners(); }
+  void setVibrationEnabled(bool v) { _useVibration = v; _storage.saveVibrationEnabled(v); notifyListeners(); }
+  void setSelectedSound(String v) { _selectedSoundType = v; _storage.saveSelectedSound(v); notifyListeners(); }
+  void setCustomSound(String p) { _customSoundPath = p; _selectedSoundType = 'Custom'; _storage.saveCustomSoundPath(p); notifyListeners(); }
 }

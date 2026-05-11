@@ -66,7 +66,7 @@ class _CardioScreenState extends State<CardioScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       appBar: AppBar(
-        title: const Text('Esteira / Cardio', style: TextStyle(fontSize: 18)),
+        title: const Text('Cardio', style: TextStyle(fontSize: 18)),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),

@@ -164,4 +164,30 @@ class StorageService {
     final keys = prefs.getKeys().where((k) => k.startsWith('workout_'));
     for (var k in keys) await prefs.remove(k);
   }
+  Future<void> saveTimerTargetTime(DateTime time) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('timer_target', time.toIso8601String());
+  }
+
+  Future<DateTime?> getTimerTargetTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? timeStr = prefs.getString('timer_target');
+    return timeStr != null ? DateTime.parse(timeStr) : null;
+  }
+
+  Future<void> clearTimerData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('timer_target');
+    await prefs.remove('timer_initial_seconds');
+  }
+
+  Future<void> saveTimerInitialSeconds(int seconds) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('timer_initial_seconds', seconds);
+  }
+
+  Future<int?> getTimerInitialSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('timer_initial_seconds');
+  }
 }
