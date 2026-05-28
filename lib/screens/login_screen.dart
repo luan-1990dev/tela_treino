@@ -36,6 +36,24 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isEmailValid = regex.hasMatch(email));
   }
 
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !_isEmailValid) {
+      _showSnackBar('Insira um e-mail válido para recuperar a senha.', isError: true);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      _showSnackBar('E-mail de recuperação enviado! Verifique sua caixa de entrada.', isError: false);
+    } catch (e) {
+      _showSnackBar('Erro ao solicitar recuperação: ${e.toString()}', isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
     try {
@@ -97,66 +115,143 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _showSnackBar(String message) {
+  void _showSnackBar(String message, {bool isError = true}) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(message, textAlign: TextAlign.center),
-      duration: const Duration(seconds: 4),
+      duration: const Duration(seconds: 5),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Colors.orange.shade800,
+      backgroundColor: isError ? Colors.red : Colors.green,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 40, left: 30, right: 30),
     ));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Container(
         decoration: const BoxDecoration(
-          gradient: RadialGradient(center: Alignment.center, radius: 1.2, colors: [Color(0xFF1A1A1A), Color(0xFF000000)]),
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.2,
+            colors: [Color(0xFF1A1A1A), Color(0xFF000000)],
+          ),
         ),
         child: Center(
-          child: SingleChildScrollView(
+          child: SingleChildScrollView( // EVITA OVERFLOW QUANDO O TECLADO SOBE
             padding: const EdgeInsets.all(28),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset('assets/icon/icon.png', height: 140, errorBuilder: (ctx, e, st) => const Icon(Icons.fitness_center, size: 100, color: Colors.blue)),
+                Image.asset(
+                    'assets/icon/icon.png',
+                    height: 140,
+                    errorBuilder: (ctx, e, st) => const Icon(Icons.fitness_center, size: 100, color: Colors.blue)
+                ),
                 const SizedBox(height: 40),
-                TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, style: const TextStyle(color: Colors.white), decoration: _inputDecoration("E-mail", Icons.email_outlined, isError: !_isEmailValid)),
+
+                // Campo E-mail
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: _inputDecoration("E-mail", Icons.email_outlined, isError: !_isEmailValid),
+                ),
                 const SizedBox(height: 16),
-                TextField(controller: _passwordController, obscureText: _obscurePassword, style: const TextStyle(color: Colors.white), decoration: _inputDecoration("Senha", Icons.lock_outline, suffixIcon: IconButton(icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: Colors.grey), onPressed: () => setState(() => _obscurePassword = !_obscurePassword)))),
-                const SizedBox(height: 24),
+
+                // Campo Senha
+                TextField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: _inputDecoration(
+                      "Senha",
+                      Icons.lock_outline,
+                      suffixIcon: IconButton(
+                          icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: Colors.grey),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword)
+                      )
+                  ),
+                ),
+
+                // LINK ESQUECEU A SENHA (RECUPERAR)
+                if (_isLoginMode)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _isLoading ? null : _resetPassword,
+                      child: const Text('Esqueceu a senha?', style: TextStyle(color: Colors.blue, fontSize: 13)),
+                    ),
+                  ),
+
+                const SizedBox(height: 16),
+
+                // Botão Principal (Entrar/Cadastrar)
                 _AnimatedButton(
                   onPressed: _isLoading ? null : _submit,
                   child: Container(
                     width: double.infinity, height: 55,
                     decoration: BoxDecoration(color: Colors.blue, borderRadius: BorderRadius.circular(16)),
                     alignment: Alignment.center,
-                    child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isLoginMode ? "ENTRAR" : "CADASTRAR", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                    child: _isLoading
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : Text(_isLoginMode ? "ENTRAR" : "CADASTRAR", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
                   ),
                 ),
+
                 const SizedBox(height: 20),
                 const Text("OU", style: TextStyle(color: Colors.grey, fontSize: 12)),
                 const SizedBox(height: 20),
+
+                // Botão Google (AJUSTADO PARA OVERFLOW)
                 _AnimatedButton(
                   onPressed: _isLoading ? null : _signInWithGoogle,
                   child: Container(
-                    width: double.infinity, height: 55,
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                    width: double.infinity,
+                    height: 55,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16)
+                    ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Image.network('https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1200px-Google_%22G%22_logo.svg.png', height: 24),
+                        const Text(
+                          "",
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
                         const SizedBox(width: 12),
-                        const Flexible(child: Text("Entrar com Google", overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold))),
+                        const Flexible(
+                            child: Text(
+                                "Continuar com Google",
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.bold
+                                )
+                            )
+                        ),
                       ],
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 32),
-                TextButton(onPressed: () => setState(() => _isLoginMode = !_isLoginMode), child: Text(_isLoginMode ? "Não tem uma conta? Cadastre-se" : "Já possui uma conta? Faça login", style: const TextStyle(color: Colors.grey))),
+
+                // Toggle Login/Cadastro
+                TextButton(
+                    onPressed: () => setState(() => _isLoginMode = !_isLoginMode),
+                    child: Text(
+                        _isLoginMode ? "Não tem uma conta? Cadastre-se" : "Já possui uma conta? Faça login",
+                        style: const TextStyle(color: Colors.grey)
+                    )
+                ),
               ],
             ),
           ),

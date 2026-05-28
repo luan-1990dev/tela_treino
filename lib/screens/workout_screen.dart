@@ -98,11 +98,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   }
 
   Future<void> _launchMusicApp(String url) async {
-    final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    final Uri uri = Uri.parse(url);
+    try {
+      bool launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalNonBrowserApplication,
+      );
+      if (!launched) {
+        throw 'Não foi possível abrir $url';
+      }
+    } catch (e) {
+      debugPrint("Erro ao abrir app de música: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("App não encontrado ou link inválido.")),
+          const SnackBar(content: Text("App não encontrado.")),
         );
       }
     }
@@ -155,16 +164,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     int targetIdx = _currentFocusIndex;
 
     if (targetIdx != -1 && targetIdx < _exercises.length) {
-      double cardHeight = 350.0;
       double screenHeight = MediaQuery.of(context).size.height;
-      double scrollPos = (targetIdx * cardHeight) - (screenHeight / 2) + (cardHeight / 2);
+      double cardEstimatedHeight = 380.0;
+      double scrollPos = (targetIdx * cardEstimatedHeight) - (screenHeight / 2) + (cardEstimatedHeight / 2);
 
       _scrollController.animateTo(
         scrollPos.clamp(0.0, _scrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 1400),
+        duration: const Duration(milliseconds: 1200),
         curve: Curves.easeInOutCubic,
-      );
-    }
+      ).then((_) {
+    setState(() {
+    _manualActiveIndex = targetIdx;
+    });
+
+    HapticFeedback.mediumImpact();
+    });
+   }
   }
 
   Future<void> _loadData() async {
@@ -335,8 +350,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         SwitchListTile(title: const Text('Som', style: TextStyle(color: Colors.white70)), value: _timerService.useSound, activeColor: Colors.blue, onChanged: (v) { setState(() => _timerService.setSoundEnabled(v)); setDialogState(() {}); }),
         SwitchListTile(title: const Text('Vibração', style: TextStyle(color: Colors.white70)), value: _timerService.useVibration, activeColor: Colors.orange, onChanged: (v) { setState(() => _timerService.setVibrationEnabled(v)); setDialogState(() {}); }),
-        const Divider(color: Colors.white12),
-        ListTile(leading: const Icon(Icons.phonelink_setup_rounded, color: Colors.greenAccent), title: const Text('Som do Dispositivo', style: TextStyle(color: Colors.white, fontSize: 14)), onTap: () => _pickCustomSound(setDialogState)),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('FECHAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))],
     )));
@@ -417,17 +430,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
           header: Column(children: [
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(icon: const FaIcon(FontAwesomeIcons.spotify, color: Color(0xFF1DB954), size: 24), onPressed: () => _launchMusicApp('spotify:')),
-              IconButton(icon: const FaIcon(FontAwesomeIcons.youtube, color: Color(0xFFFF0000), size: 24), onPressed: () => _launchMusicApp('youtubemusic:')),
-              IconButton(icon: const FaIcon(FontAwesomeIcons.apple, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('music:')),
-              IconButton(icon: const FaIcon(FontAwesomeIcons.amazon, color: Color(0xFF00A8E1), size: 24), onPressed: () => _launchMusicApp('amazonmusic:')),
-              IconButton(icon: const FaIcon(FontAwesomeIcons.deezer, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('deezer:')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.youtube, color: Color(0xFFFF0000), size: 24), onPressed: () => _launchMusicApp('https://music.youtube.com')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.apple, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('https://music.apple.com')),
             ]),
             const SizedBox(height: 8),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(icon: const Icon(Icons.clear_all, color: Colors.orange, size: 28), onPressed: () => setState(() { for (var e in _exercises) { for (var j = 0; j < e.seriesCompleted.length; j++) e.seriesCompleted[j] = false; } _autoSync(); }),tooltip: 'Limpar progresso do treino',),
               IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 28), onPressed: (){_addNew();}, tooltip: 'Adicionar novo exercício',),
               IconButton(icon: const Icon(Icons.my_library_music, color: Colors.deepPurple, size: 28), onPressed: _showAlarmSettings,tooltip: 'Ajustes de som e alarme',),
-              IconButton(icon: const Icon(Icons.analytics_outlined, color: Colors.greenAccent, size: 28), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => SummaryScreen(exercises: _exercises))); }, tooltip: 'Resumo do Treino'),
+              IconButton(icon: const Icon(Icons.analytics_outlined, color: Colors.blueGrey, size: 28), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => SummaryScreen(exercises: _exercises))); }, tooltip: 'Resumo do Treino'),
 
             ]),
             TextField(controller: _titleController, textAlign: TextAlign.center, style: TextStyle(color: titleColor, fontSize: 24, fontWeight: FontWeight.bold), decoration: const InputDecoration(border: InputBorder.none), onChanged: (v) => _autoSync()),
@@ -479,6 +490,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
             final ex = _exercises[idx];
             final bool isActive = idx == activeIdx;
+            double opacity = (activeIdx != -1 && !isActive) ? 0.4 : 1.0;
+
             return Card(
               key: ValueKey('ex_$idx'),
               margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
