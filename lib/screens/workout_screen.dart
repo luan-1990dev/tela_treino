@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:vibration/vibration.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/exercise.dart';
 import '../services/storage_service.dart';
@@ -71,7 +72,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     _titleController = TextEditingController(text: widget.workoutTitle);
     _restTitleController = TextEditingController(text: 'Descanso do treino');
 
-    _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 400));
+    _pulseController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 400));
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.25).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -91,6 +93,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
         if (_inactivityTimer == null) _startInactivityMonitor();
       } else {
         _pulseController.stop();
+      }
+    }
+  }
+
+  Future<void> _launchMusicApp(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("App não encontrado ou link inválido.")),
+        );
       }
     }
   }
@@ -138,10 +151,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   void _scrollToPending() {
     _timerService.stopVibration();
     _stopInactivityMonitor();
+
     int targetIdx = _currentFocusIndex;
+
     if (targetIdx != -1 && targetIdx < _exercises.length) {
-      double scrollPos = (targetIdx * 350.0) - (MediaQuery.of(context).size.height / 2) + 175.0;
-      _scrollController.animateTo(scrollPos.clamp(0.0, _scrollController.position.maxScrollExtent), duration: const Duration(milliseconds: 800), curve: Curves.easeInOutQuart);
+      double cardHeight = 350.0;
+      double screenHeight = MediaQuery.of(context).size.height;
+      double scrollPos = (targetIdx * cardHeight) - (screenHeight / 2) + (cardHeight / 2);
+
+      _scrollController.animateTo(
+        scrollPos.clamp(0.0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 1400),
+        curve: Curves.easeInOutCubic,
+      );
     }
   }
 
@@ -177,7 +199,31 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
           }
         }
       }
-      if (mounted) setState(() { _exercises = loadedExercises; _isLoading = false; });
+
+      if (loadedExercises.isEmpty) {
+        final exampleEx = Exercise(
+          name: 'Agachamento livre',
+          seriesCount: 4,
+          initialReps: ['10', '10', '10', '10'],
+          initialWeights: ['5', '10', '10', '15'],
+          initialNotes: 'Este é um exemplo de exercício.',
+        );
+        exampleEx.seriesCompleted = [true, true, true, true];
+        loadedExercises.add(exampleEx);
+
+        _pulseController.repeat(reverse: true);
+        Timer(const Duration(seconds: 15), () {
+          if (mounted) _pulseController.stop();
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          _exercises = loadedExercises;
+          _isLoading = false;
+        });
+        _autoSync();
+      }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -370,10 +416,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
           onReorder: (oldIdx, newIdx) { if (oldIdx >= _exercises.length || newIdx >= _exercises.length) return; _onReorder(oldIdx, newIdx); },
           header: Column(children: [
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              IconButton(icon: const Icon(Icons.clear_all, color: Colors.orange, size: 32), onPressed: () => setState(() { for (var e in _exercises) { for (var j = 0; j < e.seriesCompleted.length; j++) e.seriesCompleted[j] = false; } _autoSync(); })),
-              IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 32), onPressed: _addNew),
-              IconButton(icon: const Icon(Icons.my_library_music, color: Colors.deepPurple, size: 32), onPressed: _showAlarmSettings),
-              IconButton(icon: const Icon(Icons.analytics_outlined, color: Colors.greenAccent, size: 32), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => SummaryScreen(exercises: _exercises))); }, tooltip: 'Resumo do Treino'),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.spotify, color: Color(0xFF1DB954), size: 24), onPressed: () => _launchMusicApp('spotify:')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.youtube, color: Color(0xFFFF0000), size: 24), onPressed: () => _launchMusicApp('youtubemusic:')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.apple, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('music:')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.amazon, color: Color(0xFF00A8E1), size: 24), onPressed: () => _launchMusicApp('amazonmusic:')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.deezer, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('deezer:')),
+            ]),
+            const SizedBox(height: 8),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              IconButton(icon: const Icon(Icons.clear_all, color: Colors.orange, size: 28), onPressed: () => setState(() { for (var e in _exercises) { for (var j = 0; j < e.seriesCompleted.length; j++) e.seriesCompleted[j] = false; } _autoSync(); }),tooltip: 'Limpar progresso do treino',),
+              IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.blue, size: 28), onPressed: (){_addNew();}, tooltip: 'Adicionar novo exercício',),
+              IconButton(icon: const Icon(Icons.my_library_music, color: Colors.deepPurple, size: 28), onPressed: _showAlarmSettings,tooltip: 'Ajustes de som e alarme',),
+              IconButton(icon: const Icon(Icons.analytics_outlined, color: Colors.greenAccent, size: 28), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => SummaryScreen(exercises: _exercises))); }, tooltip: 'Resumo do Treino'),
+
             ]),
             TextField(controller: _titleController, textAlign: TextAlign.center, style: TextStyle(color: titleColor, fontSize: 24, fontWeight: FontWeight.bold), decoration: const InputDecoration(border: InputBorder.none), onChanged: (v) => _autoSync()),
             const Divider(height: 32),
