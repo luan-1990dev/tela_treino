@@ -38,6 +38,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   late final TextEditingController _restTitleController;
 
   List<Exercise> _exercises = [];
+  List<GlobalKey> _cardKeys = [];
   bool _isLoading = true;
   bool _showTimerButton = true;
 
@@ -118,7 +119,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
   }
 
   void _stopInactivityMonitor() => _inactivityTimer?.cancel();
-
   void _startInactivityMonitor() {
     _inactivityTimer?.cancel();
     _inactivityTimer = Timer(const Duration(minutes: 5), () {
@@ -162,24 +162,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     _stopInactivityMonitor();
 
     int targetIdx = _currentFocusIndex;
-
-    if (targetIdx != -1 && targetIdx < _exercises.length) {
-      double screenHeight = MediaQuery.of(context).size.height;
-      double cardEstimatedHeight = 380.0;
-      double scrollPos = (targetIdx * cardEstimatedHeight) - (screenHeight / 2) + (cardEstimatedHeight / 2);
-
-      _scrollController.animateTo(
-        scrollPos.clamp(0.0, _scrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 1200),
-        curve: Curves.easeInOutCubic,
-      ).then((_) {
+    if (targetIdx == -1 || targetIdx >= _cardKeys.length) return;
     setState(() {
-    _manualActiveIndex = targetIdx;
+      _manualActiveIndex = targetIdx;
     });
 
-    HapticFeedback.mediumImpact();
-    });
-   }
+    final contextCard = _cardKeys[targetIdx].currentContext;
+
+    if (contextCard != null) {
+      Scrollable.ensureVisible(
+        contextCard,
+        duration: const Duration(milliseconds: 1400),
+        curve: Curves.easeInOutCubic,
+        alignment: 0.5,
+      ).then((_) => HapticFeedback.mediumImpact());
+    } else {
+      double estimatedPos = targetIdx * 380.0;
+      _scrollController.animateTo(
+        estimatedPos.clamp(0.0, _scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 1400),
+        curve: Curves.easeInOutCubic,
+      ).then((_) => HapticFeedback.mediumImpact());
+    }
   }
 
   Future<void> _loadData() async {
@@ -235,6 +239,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       if (mounted) {
         setState(() {
           _exercises = loadedExercises;
+          _cardKeys = List.generate(_exercises.length, (index) => GlobalKey());
           _isLoading = false;
         });
         _autoSync();
@@ -302,8 +307,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   void _showWorkoutCompleteSnackBar() async {
     if (!mounted) return;
+    final theme = Theme.of(context);
     final screenHeight = MediaQuery.of(context).size.height;
-
     final currentVolume = _calculateCurrentTotalVolume();
     final previousVolume = await _calculatePreviousTotalVolume();
     final diff = currentVolume - previousVolume;
@@ -315,9 +320,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       }
     }
 
-    int m = totalDuration.inMinutes;
-    int s = totalDuration.inSeconds % 60;
-    String timeString = "${m}m ${s}s";
+    String timeStr = "${totalDuration.inMinutes}m ${totalDuration.inSeconds % 60}s";
     String evolutionSign = diff >= 0 ? "+" : "";
 
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -332,11 +335,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
         children: [
           const Text('🏆🥇', style: TextStyle(fontSize: 48)),
           const SizedBox(height: 12),
-          const Text(
-            'Treino concluído com sucesso, parabéns pela evolução! 💪',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
-            textAlign: TextAlign.center,
+          Text('${_titleController.text} concluído!', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+          const SizedBox(height: 10),
+          Text('⏱ Tempo: $timeStr', style: const TextStyle(fontSize: 15, color: Colors.white)),
+          Text('🏋️ Total: ${currentVolume.toStringAsFixed(0)} kg', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+          Text('📈 $evolutionSign${diff.toStringAsFixed(0)} kg evolução',
+            style: const TextStyle(fontSize: 14, color: Colors.greenAccent, fontWeight: FontWeight.w500),
           ),
+          const SizedBox(height: 16),
+          const Text('Parabéns pela dedicação! 💪', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.white70)),
         ],
       ),
     ));
@@ -370,8 +377,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
     showDialog(context: context, builder: (ctx) => AlertDialog(backgroundColor: const Color(0xFF1A1A1A), title: const Text('Novo Exercício', style: TextStyle(color: Colors.white)), content: TextField(controller: c, autofocus: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Nome do exercício', hintStyle: TextStyle(color: Colors.grey))), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')), TextButton(onPressed: () async { if (c.text.isNotEmpty) { setState(() { _exercises.add(Exercise(name: c.text, seriesCount: 4)); }); Navigator.pop(ctx); _autoSync(); } }, child: const Text('Adicionar'))]));
   }
 
-  void _onReorder(int oldIndex, int newIndex) {
-    setState(() { if (newIndex > oldIndex) newIndex -= 1; final item = _exercises.removeAt(oldIndex); _exercises.insert(newIndex, item); _manualActiveIndex = -1; });
+  void _onReorder(int oldIdx, int newIdx) {
+    setState(() {
+      if (newIdx > oldIdx) newIdx -= 1;
+      final item = _exercises.removeAt(oldIdx);
+      _exercises.insert(newIdx, item);
+      final key = _cardKeys.removeAt(oldIdx);
+      _cardKeys.insert(newIdx, key);
+      _manualActiveIndex = -1;
+    });
     _autoSync();
   }
 
@@ -382,21 +396,180 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
 
   void _showHistoryChart(String name, int index) async {
     final history = await _db.getHistory(name);
-    if (history.isEmpty) return;
     final ex = _exercises[index];
-    String dur = '--:--';
+
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // 1. Calcula a SOMA e a MÉDIA dos pesos atuais na tela
+    double todaySum = 0;
+    double sumForAverage = 0;
+    int countWeights = 0;
+
+    for (var controller in ex.weightControllers) {
+      double? val = double.tryParse(controller.text.replaceAll(',', '.'));
+      if (val != null && val > 0) {
+        todaySum += val;
+        sumForAverage += val;
+        countWeights++;
+      }
+    }
+
+    // Fallback: se nada estiver digitado, tenta pegar o último peso do banco como base
+    if (todaySum == 0 && history.isNotEmpty) {
+      todaySum = (history.last['weight'] as num).toDouble();
+      sumForAverage = todaySum;
+      countWeights = 1;
+    }
+
+    if (todaySum == 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Insira o peso nas séries para ver a tendência. 📈'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+
+    double todayAverage = sumForAverage / countWeights;
+    double progressionFactor = 1.10;
+    double goalSum = todaySum * progressionFactor;
+    double perspective = goalSum - todaySum;
+
+    String durationText = '--:--';
     if (ex.startTime != null && ex.endTime != null) {
       final diff = ex.endTime!.difference(ex.startTime!);
-      dur = "${diff.inMinutes}m ${diff.inSeconds % 60}s";
+      durationText = "${diff.inMinutes}m ${diff.inSeconds % 60}s";
     }
-    double fW = (history.first['weight'] as num).toDouble();
-    double cW = double.tryParse(ex.weightControllers.isNotEmpty ? ex.weightControllers.first.text : '0') ?? fW;
-    double proj = cW + ((cW - fW) > 0 ? (cW - fW) * 0.2 : 2.0);
-    showDialog(context: context, builder: (ctx) => AlertDialog(backgroundColor: const Color(0xFF121212), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)), title: Center(child: Text('Tendência: $name', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))), content: Column(mainAxisSize: MainAxisSize.min, children: [SizedBox(height: 180, width: double.maxFinite, child: LineChart(LineChartData(gridData: const FlGridData(show: false), titlesData: FlTitlesData(show: true, leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, m) { if (v == 0) return const Text('INÍCIO', style: TextStyle(color: Colors.grey, fontSize: 10)); if (v == 1) return const Text('HOJE', style: TextStyle(color: Colors.blue, fontSize: 10)); if (v == 2) return const Text('META', style: TextStyle(color: Colors.green, fontSize: 10)); return const SizedBox(); }))), borderData: FlBorderData(show: false), lineBarsData: [LineChartBarData(spots: [FlSpot(0, fW), FlSpot(1, cW), FlSpot(2, proj)], isCurved: true, color: Colors.blue, barWidth: 5, dotData: const FlDotData(show: true))]))), const SizedBox(height: 20), Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [_buildStat('Tempo', dur), _buildStat('Evolução', '${(cW - fW).toStringAsFixed(1)}kg'), _buildStat('Hoje', '${cW}kg', valueColor: Colors.blue)])]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('VOLTAR', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))]));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        title: Column(
+          children: [
+            Text(
+              'Gráfico de tendência',
+              style: TextStyle(
+                  color: isDark ? Colors.white54 : Colors.black54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.normal
+              ),
+            ),
+            Text(
+              name,
+              style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 180,
+              width: double.maxFinite,
+              child: LineChart(
+                LineChartData(
+                  gridData: const FlGridData(show: false),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (val, meta) {
+                          final style = TextStyle(
+                              color: isDark ? Colors.grey : Colors.black54,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold
+                          );
+                          if (val == 0) return Text('HOJE', style: style.copyWith(color: Colors.blue));
+                          if (val == 1) return Text('META', style: style.copyWith(color: Colors.green));
+                          return const SizedBox();
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: [
+                        FlSpot(0, todaySum),
+                        FlSpot(1, goalSum),
+                      ],
+                      isCurved: true,
+                      color: Colors.blue,
+                      barWidth: 5,
+                      dotData: const FlDotData(show: true),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: Colors.blue.withOpacity(0.1),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 25),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStat('Tempo', durationText, isDark),
+                _buildStat('Perspectiva', '+${perspective.toStringAsFixed(1)}kg', isDark, valueColor: Colors.greenAccent),
+                _buildStat('Hoje (Média)', '${todayAverage.toStringAsFixed(1)}kg', isDark, valueColor: Colors.blue),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+                'VOLTAR',
+                style: TextStyle(
+                    color: isDark ? Colors.blue : Colors.blue[700],
+                    fontWeight: FontWeight.bold
+                )
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget _buildStat(String l, String v, {Color? valueColor}) { return Column(children: [Text(l, style: const TextStyle(color: Colors.grey, fontSize: 10)), Text(v, style: TextStyle(color: valueColor ?? Colors.white, fontSize: 14, fontWeight: FontWeight.bold))]); }
+  Widget _buildStat(String label, String value, bool isDark, {Color? valueColor}) {
+    return Column(
+      children: [
+        Text(
+            label,
+            style: TextStyle(
+                color: isDark ? Colors.grey : Colors.black45,
+                fontSize: 10
+            )
+        ),
+        Text(
+            value,
+            style: TextStyle(
+                color: valueColor ?? (isDark ? Colors.white : Colors.black87),
+                fontSize: 14,
+                fontWeight: FontWeight.bold
+            )
+        )
+      ],
+    );
+  }
 
+  Widget _buildTimeButton(String label, int seconds, Color bg, Color fg) {
+    return FilledButton(onPressed: () => _timerService.startTimer(seconds), style: FilledButton.styleFrom(backgroundColor: bg, foregroundColor: fg, shape: const StadiumBorder()), child: Text(label));
+  }
   Future<void> _launchBenefitsSearch(String name) async { final url = Uri.parse('https://www.google.com/search?q=benefícios+exercício+${Uri.encodeComponent(name)}'); if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication); }
 
   @override
@@ -431,7 +604,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(icon: const FaIcon(FontAwesomeIcons.spotify, color: Color(0xFF1DB954), size: 24), onPressed: () => _launchMusicApp('spotify:')),
               IconButton(icon: const FaIcon(FontAwesomeIcons.youtube, color: Color(0xFFFF0000), size: 24), onPressed: () => _launchMusicApp('https://music.youtube.com')),
-              IconButton(icon: const FaIcon(FontAwesomeIcons.apple, color: Colors.white, size: 24), onPressed: () => _launchMusicApp('https://music.apple.com')),
+              IconButton(icon: const FaIcon(FontAwesomeIcons.apple, color: Colors.grey
+                  , size: 24), onPressed: () => _launchMusicApp('https://music.apple.com')),
             ]),
             const SizedBox(height: 8),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -441,8 +615,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
               IconButton(icon: const Icon(Icons.analytics_outlined, color: Colors.blueGrey, size: 28), onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => SummaryScreen(exercises: _exercises))); }, tooltip: 'Resumo do Treino'),
 
             ]),
-            TextField(controller: _titleController, textAlign: TextAlign.center, style: TextStyle(color: titleColor, fontSize: 24, fontWeight: FontWeight.bold), decoration: const InputDecoration(border: InputBorder.none), onChanged: (v) => _autoSync()),
-            const Divider(height: 32),
+            Tooltip(
+              message: 'Toque para renomear este treino',
+              child: TextField(
+                controller: _titleController,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: titleColor, fontSize: 24, fontWeight: FontWeight.bold),
+                decoration: const InputDecoration(border: InputBorder.none, hintText: 'Insira o nome do Treino'),
+                onChanged: (v) => _autoSync(),
+              ),
+            ),
+            const Divider(height: 24),
           ]),
           itemBuilder: (context, idx) {
             if (idx == _exercises.length) {
@@ -536,8 +719,4 @@ class _WorkoutScreenState extends State<WorkoutScreen> with AutomaticKeepAliveCl
       ),
     );
   }
-
-  Widget _buildTimeButton(String label, int seconds, Color bg, Color fg) {
-    return FilledButton(onPressed: () => _timerService.startTimer(seconds), style: FilledButton.styleFrom(backgroundColor: bg, foregroundColor: fg, shape: const StadiumBorder()), child: Text(label));
-  }
-}
+ }
