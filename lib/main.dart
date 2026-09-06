@@ -4,13 +4,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tela_treino/screens/home_screen.dart';
 import 'package:tela_treino/screens/login_screen.dart';
+import 'package:audioplayers/audioplayers.dart'; // Adicionado para Audio Ducking
 
 // Gerenciador de tema global
 final themeManager = ValueNotifier<ThemeMode>(ThemeMode.dark);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // --- CONFIGURAÇÃO DE AUDIO DUCKING CORRIGIDA ---
+  // Dentro do seu main()
+  AudioPlayer.global.setAudioContext(AudioContext(
+    iOS: AudioContextIOS(
+      // 'playback' garante que o som saia mesmo no modo silencioso/vibrar
+      category: AVAudioSessionCategory.playback,
+      options: [
+        AVAudioSessionOptions.duckOthers, // Abaixa o som de outros apps (Spotify/YT)
+        AVAudioSessionOptions.interruptSpokenAudioAndMixWithOthers,
+      ],
+    ),
+    android: const AudioContextAndroid(
+      // 'music' e 'media' garantem que o som saia no canal de volume de música
+      contentType: AndroidContentType.music,
+      usageType: AndroidUsageType.media,
+      audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+    ),
+  ));
+
   bool firebaseInitialized = false;
   try {
     await Firebase.initializeApp();
@@ -38,20 +58,20 @@ class MyApp extends StatelessWidget {
           theme: ThemeData(colorSchemeSeed: Colors.blue, brightness: Brightness.light, useMaterial3: true),
           darkTheme: ThemeData(colorSchemeSeed: Colors.blue, brightness: Brightness.dark, useMaterial3: true),
           themeMode: currentMode,
-          home: !isFirebaseReady 
-            ? const FirebaseErrorScreen() 
-            : StreamBuilder<User?>(
-                stream: FirebaseAuth.instance.authStateChanges(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Scaffold(body: Center(child: CircularProgressIndicator()));
-                  }
-                  if (snapshot.hasData) {
-                    return const MyHomePage(title: 'Meu Plano de Treino');
-                  }
-                  return const LoginScreen();
-                },
-              ),
+          home: !isFirebaseReady
+              ? const FirebaseErrorScreen()
+              : StreamBuilder<User?>(
+            stream: FirebaseAuth.instance.authStateChanges(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(body: Center(child: CircularProgressIndicator()));
+              }
+              if (snapshot.hasData) {
+                return const MyHomePage(title: 'Meu Plano de Treino');
+              }
+              return const LoginScreen();
+            },
+          ),
         );
       },
     );

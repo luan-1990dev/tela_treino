@@ -22,9 +22,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    // Inicializa o controller com as 4 abas
     _tabController = TabController(length: 4, vsync: this);
+
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) {
+        // Salva o nome do treino atual no Storage ao trocar de aba
         _storage.saveLastWorkout('Treino ${String.fromCharCode(65 + _tabController.index)}');
       }
     });
@@ -36,7 +39,6 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     return email.split('@')[0].split('.')[0].split('_')[0].toUpperCase();
   }
 
-  // DIÁLOGO DE LOGOUT MODERNO COM CANCELAR
   void _confirmLogout() {
     showDialog(
       context: context,
@@ -54,14 +56,11 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           'Deseja realmente encerrar sua sessão atual?',
           style: TextStyle(color: Colors.white70, fontSize: 16),
         ),
-        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         actions: [
-          // BOTÃO CANCELAR
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text('CANCELAR', style: TextStyle(color: Colors.blue.shade300, fontWeight: FontWeight.bold)),
           ),
-          // BOTÃO SAIR (Destaque)
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
@@ -75,7 +74,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 if (mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
+                        (route) => false,
                   );
                 }
               } catch (e) {
@@ -98,7 +97,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
       final name = _getUserName();
       final screenHeight = MediaQuery.of(context).size.height;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         duration: const Duration(seconds: 4),
         behavior: SnackBarBehavior.floating,
@@ -136,7 +135,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           margin: EdgeInsets.only(bottom: screenHeight / 2 - 50, left: 20, right: 20),
           content: Text('Último treino realizado:\n$last', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ));
-        
+
         await _storage.saveLastWelcomeDate(today);
       }
     });
@@ -167,14 +166,28 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
             tooltip: 'Sair do App',
           ),
         ],
+        // --- ABA CONFIGURADA COM ESTILO CÁPSULA ---
         bottom: TabBar(
           controller: _tabController,
-          indicator: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: theme.colorScheme.primary, width: 2)),
+          dividerColor: Colors.transparent, // Remove a linha cinza do fundo
           indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: theme.colorScheme.primary.withOpacity(0.15), // Fundo azul translúcido
+            border: Border.all(
+                color: theme.colorScheme.primary,
+                width: 2
+            ),
+          ),
           labelColor: theme.colorScheme.primary,
-          unselectedLabelColor: theme.colorScheme.onSurface.withAlpha(179),
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          tabs: const [Tab(text: 'Treino A'), Tab(text: 'Treino B'), Tab(text: 'Treino C'), Tab(text: 'Treino D')],
+          unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.6),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          tabs: const [
+            Tab(text: 'Treino A'),
+            Tab(text: 'Treino B'),
+            Tab(text: 'Treino C'),
+            Tab(text: 'Treino D'),
+          ],
         ),
       ),
       body: TabBarView(

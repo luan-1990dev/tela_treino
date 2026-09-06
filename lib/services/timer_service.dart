@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'; // Importação necessária
 import 'storage_service.dart';
 
 class TimerService extends ChangeNotifier {
@@ -44,15 +44,38 @@ class TimerService extends ChangeNotifier {
   void _configureAudioDucking() {
     AudioPlayer.global.setAudioContext(AudioContext(
       android: const AudioContextAndroid(
-        contentType: AndroidContentType.sonification,
-        usageType: AndroidUsageType.notification,
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.media,
         audioFocus: AndroidAudioFocus.gainTransientMayDuck,
       ),
       iOS: const AudioContextIOS(
-        category: AVAudioSessionCategory.ambient,
+        category: AVAudioSessionCategory.playback,
         options: [AVAudioSessionOptions.duckOthers],
       ),
     ));
+  }
+
+  // --- LÓGICA DE SOM ATUALIZADA (NATIVO + CUSTOM) ---
+  void _playAlarmSound() async {
+    if (!_useSound) return;
+
+    try {
+      if (_selectedSoundType == 'Custom' && _customSoundPath != null) {
+        // Toca arquivo personalizado do usuário
+        await _audioPlayer.play(DeviceFileSource(_customSoundPath!));
+      } else if (_selectedSoundType == 'Alarm') {
+        FlutterRingtonePlayer().playAlarm(volume: 0.8, looping: false);
+      } else if (_selectedSoundType == 'Notification') {
+        FlutterRingtonePlayer().playNotification(volume: 0.8);
+      } else if (_selectedSoundType == 'Ringtone') {
+        FlutterRingtonePlayer().playRingtone(volume: 0.8, looping: false);
+      } else {
+        // Fallback: Toca o som de alarme padrão do asset
+        await _audioPlayer.play(AssetSource('sounds/alarm.mp3'));
+      }
+    } catch (e) {
+      debugPrint("Erro ao tocar som: $e");
+    }
   }
 
   Future<void> _restoreRunningTimer() async {
@@ -156,43 +179,8 @@ class TimerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _startAlert() async {
-    if (_useSound) {
-      if (_selectedSoundType == 'Custom' && _customSoundPath != null) {
-        _audioPlayer.play(UrlSource(_customSoundPath!));
-      } else {
-        // CORREÇÃO: O tipo da variável é no SINGULAR
-        AndroidSound androidSound;
-        IosSound iosSound;
-
-        switch (_selectedSoundType) {
-          case 'Alarm':
-            androidSound = AndroidSounds.alarm;
-            iosSound = IosSounds.alarm;
-            break;
-          case 'Glass':
-            androidSound = AndroidSounds.notification;
-            iosSound = IosSounds.glass;
-            break;
-          case 'Ringtone':
-            androidSound = AndroidSounds.ringtone;
-            iosSound = IosSounds.electronic;
-            break;
-          default:
-            androidSound = AndroidSounds.notification;
-            iosSound = IosSounds.triTone;
-        }
-
-        // Chamada via instância
-        FlutterRingtonePlayer().play(
-          android: androidSound,
-          ios: iosSound,
-          looping: false,
-          asAlarm: false,
-          volume: 0.8,
-        );
-      }
-    }
+  void _startAlert() {
+    _playAlarmSound();
 
     if (_useVibration) {
       Vibration.vibrate(pattern: [500, 500], repeat: 0);
@@ -201,9 +189,8 @@ class TimerService extends ChangeNotifier {
 
   void stopVibration() {
     Vibration.cancel();
-    // Chamada via instância
-    FlutterRingtonePlayer().stop();
-    _audioPlayer.stop();
+    FlutterRingtonePlayer().stop(); // Para o som nativo
+    _audioPlayer.stop();            // Para o som de asset/custom
     _timerFinished = false;
     notifyListeners();
   }

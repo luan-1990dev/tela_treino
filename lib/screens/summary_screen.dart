@@ -13,12 +13,8 @@ class SummaryScreen extends StatefulWidget {
 
 class _SummaryScreenState extends State<SummaryScreen> {
   int _weeklyConsistency = 0;
-  Map<String, String> _allWorkoutTimes = {
-    'A': '--:--',
-    'B': '--:--',
-    'C': '--:--',
-    'D': '--:--',
-  };
+  // Inicializamos o mapa VAZIO para exibir apenas o que for válido
+  Map<String, String> _allWorkoutTimes = {};
 
   Duration _grandTotalDuration = Duration.zero;
   bool _loadingTimes = true;
@@ -26,16 +22,12 @@ class _SummaryScreenState extends State<SummaryScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchWeeklyConsistency();
+    // Chamamos o fetch de tempos que agora também atualizará a consistência
     _fetchAllWorkoutTimes();
   }
 
-  // LÓGICA DE RESET: Calcula o início da semana atual (último domingo às 00:00)
   DateTime get _startOfCurrentWeek {
     DateTime now = DateTime.now();
-    // No Dart, weekday vai de 1 (Segunda) a 7 (Domingo)
-    // Se hoje é domingo (7), subtraímos 0 dias para pegar o início de hoje.
-    // Se hoje é segunda (1), subtraímos 1 dia para chegar no domingo.
     int daysSinceSunday = now.weekday % 7;
     return DateTime(now.year, now.month, now.day).subtract(Duration(days: daysSinceSunday));
   }
@@ -45,7 +37,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
     if (user == null) return;
 
     try {
-      // Filtramos para buscar apenas treinos atualizados após o último domingo 00:00
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -53,7 +44,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
           .where('lastUpdated', isGreaterThanOrEqualTo: _startOfCurrentWeek)
           .get();
 
-      Map<String, String> times = {'A': '0m', 'B': '0m', 'C': '0m', 'D': '0m'};
+      Map<String, String> validTimes = {}; // Mapa temporário para treinos com tempo
       Duration grandTotal = Duration.zero;
 
       for (var doc in snapshot.docs) {
@@ -65,28 +56,29 @@ class _SummaryScreenState extends State<SummaryScreen> {
           if (ex['startTime'] != null && ex['endTime'] != null) {
             DateTime start = (ex['startTime'] as Timestamp).toDate();
             DateTime end = (ex['endTime'] as Timestamp).toDate();
-            // Só somamos se o início do exercício também foi dentro desta semana
+
             if (start.isAfter(_startOfCurrentWeek)) {
               workoutDuration += end.difference(start);
             }
           }
         }
 
-        grandTotal += workoutDuration;
+        // --- REGRA: Só adiciona se o treino teve algum exercício com tempo registrado ---
+        if (workoutDuration > Duration.zero) {
+          grandTotal += workoutDuration;
+          String formatted = workoutDuration.inHours > 0
+              ? "${workoutDuration.inHours}h ${workoutDuration.inMinutes % 60}min"
+              : "${workoutDuration.inMinutes}min";
 
-        String formatted;
-        if (workoutDuration.inHours > 0) {
-          formatted = "${workoutDuration.inHours}h ${workoutDuration.inMinutes % 60}min";
-        } else {
-          formatted = "${workoutDuration.inMinutes}min";
+          validTimes[doc.id] = formatted;
         }
-
-        times[doc.id] = formatted;
       }
 
       setState(() {
-        _allWorkoutTimes = times;
+        _allWorkoutTimes = validTimes;
         _grandTotalDuration = grandTotal;
+        // Dias ativos é o total de treinos que passaram no filtro acima
+        _weeklyConsistency = validTimes.length;
         _loadingTimes = false;
       });
     } catch (e) {
@@ -95,25 +87,9 @@ class _SummaryScreenState extends State<SummaryScreen> {
     }
   }
 
-  Future<void> _fetchWeeklyConsistency() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    // Consistency também filtrada pelo início da semana (Domingo)
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('workouts')
-        .where('lastUpdated', isGreaterThanOrEqualTo: _startOfCurrentWeek)
-        .get();
-
-    setState(() {
-      _weeklyConsistency = snapshot.docs.length;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     double totalVolume = 0;
     int totalReps = 0;
     int totalSeries = 0;
@@ -127,7 +103,6 @@ class _SummaryScreenState extends State<SummaryScreen> {
       Duration exDuration = Duration.zero;
 
       if (ex.startTime != null && ex.endTime != null) {
-        // Verifica se o treino atual (o que o usuário acabou de fazer) é válido
         exDuration = ex.endTime!.difference(ex.startTime!);
         exStarted = true;
       }
@@ -168,23 +143,44 @@ class _SummaryScreenState extends State<SummaryScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Card Maior com a soma da SEMANA
             _buildMainStat(grandTotalText, 'Tempo total na semana', Icons.auto_graph_rounded, Colors.blue),
             const SizedBox(height: 10),
-            Text(
+            const Text(
               "Dados resetam todo domingo às 00:00",
               style: TextStyle(color: Colors.white24, fontSize: 11),
             ),
             const SizedBox(height: 20),
 
-            _buildStatCard(
-              title: 'Tempo por Treino (Esta Semana)',
-              items: [
-                _statRow('Treino A', _allWorkoutTimes['A']!, Icons.ads_click, color: Colors.orangeAccent),
-                _statRow('Treino B', _allWorkoutTimes['B']!, Icons.ads_click, color: Colors.blueAccent),
-                _statRow('Treino C', _allWorkoutTimes['C']!, Icons.ads_click, color: Colors.greenAccent),
-                _statRow('Treino D', _allWorkoutTimes['D']!, Icons.ads_click, color: Colors.redAccent),
-              ],
+            // --- SEÇÃO DE TEMPO POR TREINO FILTRADA ---
+            Builder(
+              builder: (context) {
+                // Criamos a lista filtrada aqui para evitar erro de sintaxe
+                final filteredEntries = _allWorkoutTimes.entries
+                    .where((entry) => entry.value != '0m' && entry.value != '--:--')
+                    .toList();
+
+                return _buildStatCard(
+                  title: 'Tempo por Treino (Esta Semana)',
+                  items: filteredEntries.isEmpty
+                      ? [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        "Nenhum treino realizado ainda.",
+                        style: TextStyle(color: Colors.white38, fontSize: 13, fontStyle: FontStyle.italic),
+                      ),
+                    )
+                  ]
+                      : filteredEntries.map((entry) {
+                    return _statRow(
+                      'Treino ${entry.key}',
+                      entry.value,
+                      Icons.ads_click,
+                      color: _getTreinoColor(entry.key),
+                    );
+                  }).toList(),
+                );
+              },
             ),
 
             const SizedBox(height: 20),
@@ -220,7 +216,18 @@ class _SummaryScreenState extends State<SummaryScreen> {
     );
   }
 
-  // Os widgets auxiliares (_buildMainStat, _buildSmallStat, etc) permanecem os mesmos...
+  // Função auxiliar para manter as cores originais dos treinos
+  Color _getTreinoColor(String key) {
+    switch (key) {
+      case 'A': return Colors.orangeAccent;
+      case 'B': return Colors.blueAccent;
+      case 'C': return Colors.greenAccent;
+      case 'D': return Colors.redAccent;
+      default: return Colors.blue;
+    }
+  }
+
+  // --- WIDGETS AUXILIARES ---
   Widget _buildMainStat(String value, String label, IconData icon, Color color) {
     return Container(
       width: double.infinity,
